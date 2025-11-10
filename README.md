@@ -34,20 +34,39 @@ A complete Home Assistant integration for Ubisys Zigbee window covering controll
 
 ## 📦 Installation
 
-### Method 1: One-Line Installer (Recommended)
+### Method 1: One-Line Installer (Recommended for Raspberry Pi / Home Assistant OS)
+
+**For Raspberry Pi / Home Assistant OS:**
+
+```bash
+# SSH into your Home Assistant instance
+ssh root@homeassistant.local
+# (or use your IP: ssh root@192.168.1.xxx)
+
+# Run the installer
+curl -sSL https://raw.githubusercontent.com/jihlenburg/homeassistant-ubisys/main/install.sh | bash
+```
+
+**For standard Linux/macOS installations:**
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/jihlenburg/homeassistant-ubisys/main/install.sh | bash
 ```
 
 The installer will:
-- Create all required directories
-- Download integration files
-- Install ZHA quirks
-- Install calibration scripts
-- Update your `configuration.yaml`
-- Create backups of existing files
-- Validate your configuration
+- Create all required directories (`custom_components`, `custom_zha_quirks`, `python_scripts`)
+- Download all integration files from GitHub
+- Install ZHA quirk for manufacturer-specific attributes
+- Install calibration Python script
+- Update your `configuration.yaml` with required settings
+- Create timestamped backups of existing files
+- Validate your Home Assistant configuration
+- Provide rollback capability on errors
+
+**Post-installation:**
+1. Restart Home Assistant: `ha core restart` (or via UI: Configuration → System → Restart)
+2. Verify installation in logs: `grep -i ubisys /config/home-assistant.log`
+3. Check integration appears: Configuration → Integrations → Add Integration → Search "Ubisys"
 
 ### Method 2: HACS
 
