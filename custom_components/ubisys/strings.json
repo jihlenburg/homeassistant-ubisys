@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add Ubisys Device",
+        "description": "Configure a Ubisys window covering controller by selecting the underlying ZHA cover entity and shade type.",
+        "data": {
+          "zha_entity_id": "ZHA Cover Entity",
+          "shade_type": "Shade Type"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "The selected entity was not found",
+      "no_zha_covers": "No ZHA cover entities found. Please add your Ubisys device to ZHA first."
+    },
+    "abort": {
+      "already_configured": "This ZHA entity is already configured",
+      "no_zha_covers": "No ZHA cover entities available. Please pair your Ubisys device with ZHA first."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Ubisys Options",
+        "description": "Update the shade type configuration.",
+        "data": {
+          "shade_type": "Shade Type"
+        }
+      }
+    }
+  },
+  "services": {
+    "calibrate": {
+      "name": "Calibrate",
+      "description": "Run the calibration sequence for a Ubisys window covering controller.",
+      "fields": {
+        "entity_id": {
+          "name": "Entity",
+          "description": "The Ubisys cover entity to calibrate."
+        }
+      }
+    }
+  }
+}
