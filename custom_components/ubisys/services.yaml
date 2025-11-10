@@ -1,0 +1,12 @@
+calibrate:
+  name: Calibrate Ubisys Device
+  description: Run the calibration sequence for a Ubisys window covering controller.
+  fields:
+    entity_id:
+      name: Entity
+      description: The Ubisys cover entity to calibrate.
+      required: true
+      selector:
+        entity:
+          domain: cover
+          integration: ubisys

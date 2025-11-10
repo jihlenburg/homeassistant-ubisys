@@ -1,0 +1,13 @@
+{
+  "domain": "ubisys",
+  "name": "Ubisys Zigbee Devices",
+  "codeowners": ["@jihlenburg"],
+  "config_flow": true,
+  "dependencies": ["zha"],
+  "documentation": "https://github.com/jihlenburg/homeassistant-ubisys",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/jihlenburg/homeassistant-ubisys/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}
