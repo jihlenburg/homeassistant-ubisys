@@ -1,7 +1,7 @@
 {
   "name": "Ubisys Zigbee Devices",
   "render_readme": true,
-  "domains": ["cover"],
+  "domains": ["cover", "button"],
   "iot_class": "Local Polling",
   "homeassistant": "2024.1.0"
 }

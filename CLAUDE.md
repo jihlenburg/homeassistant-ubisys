@@ -4,11 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Home Assistant custom integration for Ubisys Zigbee window covering controllers (J1 model). The integration has three main components:
+This is a Home Assistant custom integration for Ubisys Zigbee window covering controllers (J1 model). The integration has four main components:
 
 1. **Custom Integration** (`custom_components/ubisys/`) - A wrapper integration that filters features based on shade type
+   - Cover platform (`cover.py`) - Wrapper entity with feature filtering
+   - Button platform (`button.py`) - Calibration button for easy UI access
 2. **ZHA Quirk** (`custom_zha_quirks/ubisys_j1.py`) - Extends ZHA with Ubisys manufacturer-specific attributes
 3. **Calibration Script** (`python_scripts/ubisys_j1_calibrate.py`) - Automated calibration sequence
+
+**UI Enhancements:**
+- Cover entity exposes `shade_type` as a state attribute for visibility in UI
+- Calibration button entity provides one-click calibration from device page
+- No need to navigate to Developer Tools → Services
 
 ## Architecture
 

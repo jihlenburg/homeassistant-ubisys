@@ -155,6 +155,15 @@ class UbisysCover(CoverEntity):
             return f"Ubisys {zha_state.attributes.get('friendly_name', 'Cover')}"
         return "Ubisys Cover"
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return entity specific state attributes."""
+        return {
+            "shade_type": self._shade_type,
+            "zha_entity_id": self._zha_entity_id,
+            "integration": "ubisys",
+        }
+
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the cover."""
         if not (self._attr_supported_features & CoverEntityFeature.OPEN):

@@ -9,7 +9,6 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.components.cover import DOMAIN as COVER_DOMAIN
-from homeassistant.const import CONF_ENTITY_ID
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import entity_registry as er

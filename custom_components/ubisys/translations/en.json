@@ -30,6 +30,13 @@
       }
     }
   },
+  "entity": {
+    "button": {
+      "calibrate": {
+        "name": "Calibrate"
+      }
+    }
+  },
   "services": {
     "calibrate": {
       "name": "Calibrate",
