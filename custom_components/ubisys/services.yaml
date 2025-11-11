@@ -1,10 +1,14 @@
-calibrate:
-  name: Calibrate Ubisys Device
-  description: Run the calibration sequence for a Ubisys window covering controller.
+calibrate_j1:
+  name: Calibrate Ubisys J1
+  description: >
+    Run the automated calibration sequence for a Ubisys J1 window covering controller.
+    This will move the cover through its full range to measure total steps and configure
+    the device for the selected shade type (including tilt settings for venetian blinds).
+    The calibration process takes approximately 2 minutes to complete.
   fields:
     entity_id:
       name: Entity
-      description: The Ubisys cover entity to calibrate.
+      description: The Ubisys J1 cover entity to calibrate.
       required: true
       selector:
         entity:

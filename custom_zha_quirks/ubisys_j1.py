@@ -2,13 +2,45 @@
 
 This quirk extends the WindowCovering cluster with Ubisys manufacturer-specific
 attributes for proper calibration and control of window covering devices.
+
+Manufacturer: Ubisys Technologies GmbH
+Model: J1
+Device Type: Window Covering Controller (0x0202)
+Manufacturer Code: 0x10F2
+
+Endpoints:
+    1: Configuration and diagnostics (Basic, Identify, Groups, Scenes, OnOff, LevelControl)
+    2: Window covering control (Basic, Identify, Groups, Scenes, WindowCovering)
+
+Manufacturer-specific attributes (cluster 0x0102, mfg code 0x10F2):
+    - 0x1000: configured_mode (uint8) - Window covering operational mode
+        0 = Roller shade
+        1 = Cellular shade
+        2 = Vertical blind
+        3 = Venetian blind
+        4 = Exterior venetian blind
+    - 0x1001: lift_to_tilt_transition_steps (uint16) - Steps required for tilt transition
+    - 0x1002: total_steps (uint16) - Total motor steps from fully open to fully closed
+
+Usage:
+    These manufacturer attributes enable precise calibration of the window covering
+    motor and support for different shade types including those with tilt functionality.
+    The quirk automatically injects the manufacturer code when reading or writing
+    these attributes, simplifying integration development.
+
+Compatibility:
+    - Home Assistant ZHA integration
+    - Compatible with both V1 (CustomDevice) and V2 (QuirkBuilder) registration
 """
 
+from __future__ import annotations
+
 import logging
-from typing import Any, Optional
+from typing import Any, Final, Optional
 
 from zigpy.quirks import CustomCluster, CustomDevice
-from zigpy.quirks.registry import DeviceRegistry
+from zigpy.quirks.v2 import QuirkBuilder
+from zigpy.zcl import foundation
 from zigpy.zcl.clusters.closures import WindowCovering
 from zigpy.zcl.foundation import ZCLAttributeDef
 
@@ -24,42 +56,51 @@ from zhaquirks.const import (
 _LOGGER = logging.getLogger(__name__)
 
 # Ubisys manufacturer code
-UBISYS_MANUFACTURER_CODE = 0x10F2
+UBISYS_MANUFACTURER_CODE: Final[int] = 0x10F2
 
-# Ubisys manufacturer-specific attributes
-UBISYS_ATTR_CONFIGURED_MODE = 0x1000
-UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS = 0x1001
-UBISYS_ATTR_TOTAL_STEPS = 0x1002
+# Ubisys manufacturer-specific attribute IDs
+UBISYS_ATTR_CONFIGURED_MODE: Final[int] = 0x1000
+UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS: Final[int] = 0x1001
+UBISYS_ATTR_TOTAL_STEPS: Final[int] = 0x1002
 
 
 class UbisysWindowCovering(CustomCluster, WindowCovering):
-    """Ubisys Window Covering cluster with manufacturer-specific attributes."""
+    """Ubisys Window Covering cluster with manufacturer-specific attributes.
+
+    This cluster extends the standard WindowCovering cluster (0x0102) with
+    Ubisys manufacturer-specific attributes that enable advanced calibration
+    and configuration features for window covering devices.
+
+    The cluster automatically injects the Ubisys manufacturer code (0x10F2)
+    when reading or writing manufacturer-specific attributes, eliminating
+    the need for integrations to manually specify it.
+    """
 
     cluster_id = WindowCovering.cluster_id
 
-    # Extend manufacturer-specific attributes
+    # Manufacturer-specific attributes
     manufacturer_attributes = {
         UBISYS_ATTR_CONFIGURED_MODE: ZCLAttributeDef(
             id=UBISYS_ATTR_CONFIGURED_MODE,
             name="configured_mode",
-            type=0x20,  # uint8
+            type=foundation.DATA_TYPES.uint8,
             is_manufacturer_specific=True,
         ),
         UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS: ZCLAttributeDef(
             id=UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS,
             name="lift_to_tilt_transition_steps",
-            type=0x21,  # uint16
+            type=foundation.DATA_TYPES.uint16,
             is_manufacturer_specific=True,
         ),
         UBISYS_ATTR_TOTAL_STEPS: ZCLAttributeDef(
             id=UBISYS_ATTR_TOTAL_STEPS,
             name="total_steps",
-            type=0x21,  # uint16
+            type=foundation.DATA_TYPES.uint16,
             is_manufacturer_specific=True,
         ),
     }
 
-    # Merge with base attributes
+    # Merge with base WindowCovering attributes
     attributes = {**WindowCovering.attributes, **manufacturer_attributes}
 
     async def read_attributes(
@@ -72,30 +113,40 @@ class UbisysWindowCovering(CustomCluster, WindowCovering):
         """Read attributes with automatic manufacturer code injection.
 
         For Ubisys manufacturer-specific attributes, automatically inject
-        the manufacturer code if not provided.
+        the manufacturer code if not provided. This simplifies access to
+        manufacturer attributes from both the quirk and external integrations.
+
+        Args:
+            attributes: List of attribute names or IDs to read
+            allow_cache: Whether to allow cached values
+            only_cache: Whether to only use cached values
+            manufacturer: Manufacturer code (auto-injected for Ubisys attributes)
+
+        Returns:
+            Dictionary mapping attribute IDs/names to values
         """
-        # Check if any requested attributes are manufacturer-specific
+        # Convert attribute names to IDs
         attr_ids = []
         for attr in attributes:
             if isinstance(attr, str):
-                # Convert name to ID
+                # Convert name to ID by searching attributes dict
                 for attr_id, attr_def in self.attributes.items():
-                    if attr_def.name == attr:
+                    if hasattr(attr_def, "name") and attr_def.name == attr:
                         attr_ids.append(attr_id)
                         break
             else:
                 attr_ids.append(attr)
 
-        # If any attribute is manufacturer-specific and no manufacturer code provided,
-        # inject Ubisys manufacturer code
+        # Check if any requested attributes are manufacturer-specific
         needs_mfg_code = any(
             attr_id in self.manufacturer_attributes for attr_id in attr_ids
         )
 
+        # Auto-inject Ubisys manufacturer code if needed
         if needs_mfg_code and manufacturer is None:
             manufacturer = UBISYS_MANUFACTURER_CODE
             _LOGGER.debug(
-                "Injecting Ubisys manufacturer code (0x%04X) for read_attributes",
+                "Auto-injecting Ubisys manufacturer code (0x%04X) for read_attributes",
                 UBISYS_MANUFACTURER_CODE,
             )
 
@@ -107,32 +158,41 @@ class UbisysWindowCovering(CustomCluster, WindowCovering):
         self,
         attributes: dict[str | int, Any],
         manufacturer: Optional[int] = None,
-    ) -> list[Any]:
+    ) -> list[foundation.WriteAttributesResponse]:
         """Write attributes with automatic manufacturer code injection.
 
         For Ubisys manufacturer-specific attributes, automatically inject
         the manufacturer code if not provided.
+
+        Args:
+            attributes: Dictionary mapping attribute names/IDs to values
+            manufacturer: Manufacturer code (auto-injected for Ubisys attributes)
+
+        Returns:
+            List of write attribute responses
         """
-        # Check if any attributes being written are manufacturer-specific
+        # Convert attribute names to IDs
         attr_ids = []
         for attr in attributes.keys():
             if isinstance(attr, str):
-                # Convert name to ID
+                # Convert name to ID by searching attributes dict
                 for attr_id, attr_def in self.attributes.items():
-                    if attr_def.name == attr:
+                    if hasattr(attr_def, "name") and attr_def.name == attr:
                         attr_ids.append(attr_id)
                         break
             else:
                 attr_ids.append(attr)
 
+        # Check if any attributes being written are manufacturer-specific
         needs_mfg_code = any(
             attr_id in self.manufacturer_attributes for attr_id in attr_ids
         )
 
+        # Auto-inject Ubisys manufacturer code if needed
         if needs_mfg_code and manufacturer is None:
             manufacturer = UBISYS_MANUFACTURER_CODE
             _LOGGER.debug(
-                "Injecting Ubisys manufacturer code (0x%04X) for write_attributes",
+                "Auto-injecting Ubisys manufacturer code (0x%04X) for write_attributes",
                 UBISYS_MANUFACTURER_CODE,
             )
 
@@ -140,23 +200,42 @@ class UbisysWindowCovering(CustomCluster, WindowCovering):
 
 
 class UbisysJ1(CustomDevice):
-    """Ubisys J1 Window Covering Controller custom device."""
+    """Ubisys J1 Window Covering Controller custom device.
+
+    This class provides V1 quirk compatibility for systems that don't support
+    QuirkBuilder V2. It will be automatically used if V2 is not available.
+    """
 
     signature = {
         MODELS_INFO: [("ubisys", "J1")],
         ENDPOINTS: {
             # Endpoint 1: Configuration and diagnostics
             1: {
-                PROFILE_ID: 0x0104,
-                DEVICE_TYPE: 0x0104,
-                INPUT_CLUSTERS: [0x0000, 0x0003, 0x0004, 0x0005, 0x0006, 0x0008],
-                OUTPUT_CLUSTERS: [0x0019],
+                PROFILE_ID: 0x0104,  # Zigbee Home Automation
+                DEVICE_TYPE: 0x0104,  # Dimmer Switch
+                INPUT_CLUSTERS: [
+                    0x0000,  # Basic
+                    0x0003,  # Identify
+                    0x0004,  # Groups
+                    0x0005,  # Scenes
+                    0x0006,  # On/Off
+                    0x0008,  # Level Control
+                ],
+                OUTPUT_CLUSTERS: [
+                    0x0019,  # OTA Upgrade
+                ],
             },
             # Endpoint 2: Window covering control
             2: {
-                PROFILE_ID: 0x0104,
-                DEVICE_TYPE: 0x0202,  # Window covering device
-                INPUT_CLUSTERS: [0x0000, 0x0003, 0x0004, 0x0005, 0x0102],
+                PROFILE_ID: 0x0104,  # Zigbee Home Automation
+                DEVICE_TYPE: 0x0202,  # Window Covering
+                INPUT_CLUSTERS: [
+                    0x0000,  # Basic
+                    0x0003,  # Identify
+                    0x0004,  # Groups
+                    0x0005,  # Scenes
+                    0x0102,  # Window Covering
+                ],
                 OUTPUT_CLUSTERS: [],
             },
         },
@@ -167,8 +246,17 @@ class UbisysJ1(CustomDevice):
             1: {
                 PROFILE_ID: 0x0104,
                 DEVICE_TYPE: 0x0104,
-                INPUT_CLUSTERS: [0x0000, 0x0003, 0x0004, 0x0005, 0x0006, 0x0008],
-                OUTPUT_CLUSTERS: [0x0019],
+                INPUT_CLUSTERS: [
+                    0x0000,
+                    0x0003,
+                    0x0004,
+                    0x0005,
+                    0x0006,
+                    0x0008,
+                ],
+                OUTPUT_CLUSTERS: [
+                    0x0019,
+                ],
             },
             2: {
                 PROFILE_ID: 0x0104,
@@ -178,7 +266,7 @@ class UbisysJ1(CustomDevice):
                     0x0003,
                     0x0004,
                     0x0005,
-                    UbisysWindowCovering,  # Replace standard cluster with custom
+                    UbisysWindowCovering,  # Replace with enhanced cluster
                 ],
                 OUTPUT_CLUSTERS: [],
             },
@@ -186,8 +274,12 @@ class UbisysJ1(CustomDevice):
     }
 
 
-# Register the quirk in the device registry
-def register_quirks(registry: DeviceRegistry) -> None:
-    """Register Ubisys quirks with the device registry."""
-    registry.add_to_registry(UbisysJ1)
-    _LOGGER.info("Registered Ubisys J1 quirk")
+# V2 QuirkBuilder registration (preferred for modern Home Assistant)
+# This will be used if the system supports QuirkBuilder V2 (HA 2023.3+)
+(
+    QuirkBuilder("ubisys", "J1")
+    .replaces(UbisysWindowCovering)
+    .add_to_registry()
+)
+
+_LOGGER.info("Registered Ubisys J1 quirk")

@@ -8,8 +8,15 @@ from homeassistant.components.cover import CoverEntityFeature
 DOMAIN: Final = "ubisys"
 
 # Configuration and options
+CONF_DEVICE_IEEE: Final = "device_ieee"
+CONF_DEVICE_ID: Final = "device_id"
+CONF_ZHA_CONFIG_ENTRY_ID: Final = "zha_config_entry_id"
 CONF_ZHA_ENTITY_ID: Final = "zha_entity_id"
 CONF_SHADE_TYPE: Final = "shade_type"
+
+# Device identification
+MANUFACTURER: Final = "ubisys"
+SUPPORTED_MODELS: Final = ["J1"]
 
 # Shade types
 SHADE_TYPE_ROLLER: Final = "roller"
@@ -92,7 +99,7 @@ ATTR_CURRENT_POSITION_LIFT: Final = 0x0008
 ATTR_CURRENT_POSITION_TILT: Final = 0x0009
 
 # Service names
-SERVICE_CALIBRATE: Final = "calibrate"
+SERVICE_CALIBRATE: Final = "calibrate_j1"
 
 # Service parameters
 ATTR_ENTITY_ID: Final = "entity_id"
@@ -100,3 +107,13 @@ ATTR_ENTITY_ID: Final = "entity_id"
 # Events
 EVENT_UBISYS_CALIBRATION_COMPLETE: Final = "ubisys_calibration_complete"
 EVENT_UBISYS_CALIBRATION_FAILED: Final = "ubisys_calibration_failed"
+
+# Shade type to tilt steps mapping
+# These values determine how many motor steps are used for tilt operations
+SHADE_TYPE_TILT_STEPS: Final = {
+    SHADE_TYPE_ROLLER: 0,  # No tilt
+    SHADE_TYPE_CELLULAR: 0,  # No tilt
+    SHADE_TYPE_VERTICAL: 0,  # No tilt
+    SHADE_TYPE_VENETIAN: 100,  # Typical venetian blind tilt range
+    SHADE_TYPE_EXTERIOR_VENETIAN: 100,  # Typical exterior venetian blind tilt range
+}
