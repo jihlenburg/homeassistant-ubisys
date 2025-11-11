@@ -61,11 +61,27 @@ This integration **filters controls** based on your actual shade type:
 
 ## 🎛️ Supported Devices
 
-| Device | Lift Control | Tilt Control | Calibration |
-|--------|--------------|--------------|-------------|
-| **Ubisys J1** | ✅ | ✅ | ✅ |
+### Currently Supported
 
-### Shade Types
+| Device | Type | HA Platform | Status | Features |
+|--------|------|-------------|--------|----------|
+| **J1** | Window Covering Controller | `cover` | ✅ **Supported** | Position, Tilt, Calibration |
+| **J1-R** | Window Covering (DIN Rail) | `cover` | ✅ **Supported** | Position, Tilt, Calibration |
+
+### Roadmap (Planned)
+
+| Device | Type | HA Platform | Status |
+|--------|------|-------------|--------|
+| **S1** | Power Switch (16A) | `switch` | 📋 Planned |
+| **S1-R** | Power Switch (DIN Rail) | `switch` | 📋 Planned |
+| **S2** | Dual Power Switch (500W×2) | `switch` | 📋 Planned |
+| **S2-R** | Dual Power Switch (DIN Rail) | `switch` | 📋 Planned |
+| **D1** | Universal Dimmer | `light` | 📋 Planned |
+| **D1-R** | Universal Dimmer (DIN Rail) | `light` | 📋 Planned |
+
+> **Note:** This integration currently focuses on Ubisys window covering devices (J1/J1-R). Support for switches and dimmers is planned for future releases. See [Architecture Overview](docs/architecture_overview.md) for details on the extensible design.
+
+### J1/J1-R Shade Types
 
 | Type | Features | WindowCoveringType |
 |------|----------|-------------------|
@@ -482,13 +498,28 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🗺️ Roadmap
 
-- [ ] Support for Ubisys J1-R (roller shutter variant)
-- [ ] Support for Ubisys S1/S2 switches
-- [ ] Scene support for preset positions
-- [ ] Position offset configuration
-- [ ] Speed control configuration
-- [ ] Web-based calibration wizard
+### Device Support
+- [x] **J1** - Window covering controller ✅ v1.1.1
+- [x] **J1-R** - DIN rail variant ✅ v1.1.1
+- [ ] **S1/S1-R** - Power switch (16A with energy metering)
+- [ ] **S2/S2-R** - Dual power switch (500W×2)
+- [ ] **D1/D1-R** - Universal dimmer
+
+### Features
+- [ ] Energy metering dashboard (S1 devices)
+- [ ] Scene support for preset positions (J1)
+- [ ] Position offset configuration (J1)
+- [ ] Speed control configuration (J1)
+- [ ] Web-based calibration wizard (J1)
 - [ ] Multi-language support
+
+### Documentation
+- [x] Architecture overview ✅ v1.1.1
+- [x] Window covering architecture ✅ v1.1.1
+- [ ] S1/S2 switch integration guide
+- [ ] D1 dimmer integration guide
+
+See [Architecture Overview](docs/architecture_overview.md) for detailed integration design and extensibility.
 
 ---
 
