@@ -6,6 +6,47 @@
 
 A complete Home Assistant integration for Ubisys Zigbee window covering controllers, providing enhanced support with custom ZHA quirks, auto-discovery, smart feature filtering, and automated calibration.
 
+---
+
+## 🎯 At a Glance
+
+### The Problem
+
+Home Assistant's default ZHA integration shows **all** window covering controls for every blind, regardless of type:
+- **Roller shades** get confusing tilt controls (they don't tilt!)
+- **Venetian blinds** show tilt controls, but you have to know they exist
+- **No guidance** on which controls work for your specific shade type
+
+### The Solution
+
+This integration **filters controls** based on your actual shade type:
+
+| Shade Type | Position Control | Tilt Control | What You See |
+|------------|------------------|--------------|--------------|
+| Roller / Cellular / Vertical | ✅ | ❌ | Open, Close, Stop, Position slider |
+| Venetian (interior/exterior) | ✅ | ✅ | Position slider + Tilt slider |
+
+**Plus**: One-click calibration button, auto-discovery, and smart feature filtering.
+
+### Quick Comparison
+
+**Without this integration** (plain ZHA):
+```
+🔹 Roller Shade Entity
+   Controls: Open, Close, Stop, Position, Tilt ← Confusing!
+   Calibration: Manual YAML configuration required
+```
+
+**With this integration**:
+```
+🟢 Roller Shade Entity
+   Controls: Open, Close, Stop, Position ← Only relevant controls!
+   Calibration: Click "Calibrate" button ← Easy!
+   Shade Type: Visible in entity attributes
+```
+
+---
+
 ## ✨ Features
 
 - 🔍 **Auto-Discovery** - Automatically detects J1 devices when paired with ZHA (v1.1+)

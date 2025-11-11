@@ -182,19 +182,47 @@ async def _find_zha_cover_entity(hass: HomeAssistant, device_id: str) -> str | N
 
 
 async def _validate_device_ready(hass: HomeAssistant, entity_id: str) -> None:
-    """Validate device is ready for calibration.
+    """Validate device is ready for calibration (pre-flight checks).
 
-    Pre-flight checks:
-    - Device exists in Home Assistant
-    - Device is available (not offline)
-    - Device reports current_position attribute
+    Performs essential checks before starting calibration to fail fast with clear
+    error messages rather than failing midway through the sequence. This improves
+    user experience by catching common issues early.
+
+    Pre-flight Checks:
+        1. Entity exists in Home Assistant state registry
+           → Catches misconfigured entity_id or deleted entities
+
+        2. Device is available (not offline/unavailable)
+           → Prevents starting calibration on disconnected device
+           → User should check Zigbee connection, power, signal strength
+
+        3. Device reports current_position attribute
+           → Verifies device is compatible (WindowCovering device)
+           → Required for stall detection algorithm
+
+    Why these specific checks?
+        - Entity existence: ZHA entity could be disabled/removed between
+          service call and calibration start
+        - Availability: Zigbee device could go offline, preventing any commands
+        - Position attribute: Required for stall detection; missing indicates
+          incompatible device or ZHA configuration issue
 
     Args:
-        hass: Home Assistant instance
-        entity_id: Entity ID of the cover to validate
+        hass: Home Assistant instance for state access
+        entity_id: ZHA cover entity ID to validate (not ubisys wrapper entity)
 
     Raises:
-        HomeAssistantError: If device is not ready for calibration
+        HomeAssistantError: With specific message indicating which check failed:
+            - "Entity {id} not found" → Check entity_id, verify ZHA pairing
+            - "Device is unavailable" → Check power, Zigbee connection
+            - "Does not report current_position" → Incompatible device
+
+    Example:
+        >>> await _validate_device_ready(hass, "cover.zha_bedroom_j1")
+        # Returns normally if all checks pass
+
+        >>> await _validate_device_ready(hass, "cover.wrong_id")
+        HomeAssistantError: Entity cover.wrong_id not found...
     """
     _LOGGER.debug("Running pre-flight checks for %s", entity_id)
 
@@ -324,20 +352,93 @@ async def _calibration_phase_3_find_bottom(
     cluster: Cluster,
     entity_id: str,
 ) -> int:
-    """PHASE 3: Find bottom limit and read total_steps.
+    """PHASE 3: Find bottom limit and read device-calculated total_steps.
 
-    Moves blind DOWN until motor stalls, then reads device-calculated total_steps.
+    This is the CRITICAL PHASE where the Ubisys J1 device calculates total_steps
+    (total motor steps from fully open to fully closed). The device performs this
+    calculation internally during the down movement from top to bottom.
+
+    Phase Sequence:
+        Step 6: Send down_close command (continuous downward movement)
+        Step 7: Monitor position until motor stalls at bottom limit
+        Step 8: Send stop command to halt motor
+        Step 9: Read total_steps attribute (device has calculated this value)
+
+    Why does the device calculate total_steps?
+
+    The J1 uses a stepper motor that counts steps during movement. When we complete
+    the "Phase 2 (up) → Phase 3 (down)" sequence, the device knows exactly how many
+    steps it took to traverse the full range. This is more accurate than trying to
+    calculate it from position percentages because:
+        - Avoids rounding errors
+        - Accounts for mechanical tolerances
+        - Matches device's internal step counter
+
+    Example Calibration Flow:
+        Phase 2 result: Top position = 100 (fully open)
+        Phase 3 movement: Down from 100 → 0
+        Device calculates: 5000 steps to traverse full range
+        total_steps returned: 5000
+
+    For Venetian Blinds:
+        Phase 3 also determines the tilt range baseline. After reading total_steps
+        (e.g., 4500 for a typical venetian), Phase 5 writes lift_to_tilt_transition_steps
+        (typically 100) which tells the device how many steps are needed to fully
+        tilt the slats.
+
+    Common Failure Modes & Troubleshooting:
+
+        1. total_steps = 0xFFFF (65535):
+           → Device didn't complete calculation correctly
+           → Usually means Phase 2 didn't complete properly
+           → Check logs for Phase 2 completion message
+           → Verify motor actually moved in Phase 2
+
+        2. total_steps = 0:
+           → Motor didn't move during Phase 3
+           → Check for physical obstruction
+           → Verify device is receiving commands
+           → Check Zigbee signal strength
+
+        3. Timeout before stall:
+           → Motor moving extremely slowly
+           → Could indicate mechanical issue
+           → Try increasing PER_MOVE_TIMEOUT constant
+           → Check for binding or friction
+
+        4. total_steps seems wrong (too low/high):
+           → Typical range: 1000-20000 steps
+           → <1000: Very small blind or high step motor
+           → >20000: Very large blind or low step motor
+           → If suspiciously high/low, re-run calibration
 
     Args:
-        hass: Home Assistant instance
-        cluster: WindowCovering cluster instance
-        entity_id: Entity ID for stall detection
+        hass: Home Assistant instance for state monitoring
+        cluster: WindowCovering cluster for sending commands and reading attributes
+        entity_id: ZHA cover entity ID for stall detection monitoring
 
     Returns:
-        Total motor steps measured by device (e.g., 5000)
+        Total motor steps measured by device during full travel.
+        Typical values: 1000-20000 depending on blind size and motor gearing.
+        This value is used by the device for all subsequent position calculations.
 
     Raises:
-        HomeAssistantError: If movement fails or total_steps invalid
+        HomeAssistantError: If any of the following occur:
+            - down_close command fails → Zigbee communication issue
+            - Timeout during movement → Motor jammed or very slow
+            - stop command fails → Warning logged, not fatal
+            - total_steps read fails → Cluster communication issue
+            - total_steps invalid (None or 0xFFFF) → Calibration incomplete
+
+    Example:
+        >>> total_steps = await _calibration_phase_3_find_bottom(hass, cluster, entity_id)
+        >>> print(f"Device measured {total_steps} steps")
+        Device measured 5000 steps
+
+    See Also:
+        - _calibration_phase_2_find_top(): Must complete before this phase
+        - _wait_for_stall(): Used to detect bottom limit
+        - UBISYS_ATTR_TOTAL_STEPS in const.py: Attribute definition
     """
     _LOGGER.info("═══ PHASE 3: Finding bottom limit (fully closed) ═══")
 
@@ -623,21 +724,82 @@ async def _wait_for_stall(
     phase_description: str,
     timeout: int = PER_MOVE_TIMEOUT,
 ) -> int:
-    """Wait for motor to stall (reach limit) by monitoring position.
+    """Wait for motor stall via position monitoring (stall detection algorithm).
 
-    Stall is detected when the position hasn't changed for STALL_DETECTION_TIME seconds.
+    The Ubisys J1 motor doesn't provide a "reached limit" signal. Instead, we must
+    detect when the motor has stalled by monitoring the position attribute reported
+    by the ZHA cover entity. A stall is detected when the position remains unchanged
+    for STALL_DETECTION_TIME seconds (default 3s).
+
+    This approach was derived from deCONZ's window_covering.cpp implementation,
+    which has proven reliable across various blind types and motor speeds.
+
+    ═══════════════════════════════════════════════════════════════
+    STALL DETECTION ALGORITHM
+    ═══════════════════════════════════════════════════════════════
+
+    1. Poll position attribute every STALL_DETECTION_INTERVAL (0.5s)
+    2. Compare current position to last known position
+    3. If unchanged:
+       - Start stall timer (if not already started)
+       - If timer reaches STALL_DETECTION_TIME (3s): declare stall
+    4. If position changes:
+       - Reset stall timer
+       - Update last_position
+       - Continue monitoring
+    5. If elapsed time exceeds timeout: raise error
+
+    Why 3 seconds for stall detection?
+        - <2s: False positives if motor briefly pauses during movement
+        - >5s: Poor UX (user perceives lag, wasted time)
+        - 3s: Balances reliability with user experience
+        - Proven value from deCONZ implementation
+
+    Why 0.5s polling interval?
+        - Fast enough to detect stall promptly
+        - Slow enough to avoid excessive state polling
+        - Provides ~6 samples during 3s stall window
+
+    Why 120s timeout?
+        - Allows for very large blinds or slow motors
+        - Prevents infinite loops if device fails
+        - User can interrupt via Home Assistant if needed
 
     Args:
-        hass: Home Assistant instance
-        entity_id: Cover entity ID to monitor
-        phase_description: Description of current phase (for logging)
-        timeout: Maximum time to wait in seconds
+        hass: Home Assistant instance for state access
+        entity_id: ZHA cover entity ID to monitor (NOT ubisys wrapper entity)
+        phase_description: Human-readable phase description for logging
+                          (e.g., "finding top limit", "verification return")
+        timeout: Maximum seconds to wait before raising timeout error
+                Default PER_MOVE_TIMEOUT (120s)
 
     Returns:
-        Final position when stall was detected
+        Final position value when motor stalled (e.g., 100 for fully open,
+        0 for fully closed). Position is in Home Assistant percentage format
+        where 100 = fully open, 0 = fully closed.
 
     Raises:
-        HomeAssistantError: If timeout is reached or entity not found
+        HomeAssistantError: If any of the following occur:
+            - Motor doesn't stall within timeout period
+              → Usually indicates jammed motor, physical obstruction,
+                or device disconnected from Zigbee network
+            - Entity not found during monitoring
+              → ZHA entity was removed/disabled during calibration
+            - Position attribute missing
+              → Device not reporting position (rare, usually transient)
+
+    Example:
+        >>> # During Phase 2: Finding top limit
+        >>> await cluster.command("up_open")  # Start upward movement
+        >>> final_pos = await _wait_for_stall(hass, "cover.zha_j1", "finding top")
+        >>> await cluster.command("stop")
+        >>> print(f"Motor stalled at position {final_pos}")
+        Motor stalled at position 100  # Fully open
+
+    See Also:
+        - _calibration_phase_2_find_top(): Uses this for top limit detection
+        - _calibration_phase_3_find_bottom(): Uses this for bottom limit
+        - _calibration_phase_4_verify(): Uses this for verification move
     """
     _LOGGER.debug(
         "Waiting for stall during '%s' (timeout: %ss, stall time: %ss)",

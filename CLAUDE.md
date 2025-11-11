@@ -4,18 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Home Assistant custom integration for Ubisys Zigbee window covering controllers (J1 model). The integration has four main components:
+This is a Home Assistant custom integration for Ubisys Zigbee window covering controllers (J1 model). The integration has three main components:
 
-1. **Custom Integration** (`custom_components/ubisys/`) - A wrapper integration that filters features based on shade type
+1. **Custom Integration** (`custom_components/ubisys/`)
    - Cover platform (`cover.py`) - Wrapper entity with feature filtering
    - Button platform (`button.py`) - Calibration button for easy UI access
-2. **ZHA Quirk** (`custom_zha_quirks/ubisys_j1.py`) - Extends ZHA with Ubisys manufacturer-specific attributes
-3. **Calibration Script** (`python_scripts/ubisys_j1_calibrate.py`) - Automated calibration sequence
+   - Calibration module (`calibration.py`) - 5-phase automated calibration with stall detection
+   - Config flow (`config_flow.py`) - UI-based setup with auto-discovery
+   - Constants (`const.py`) - Shade type mappings and feature definitions
 
-**UI Enhancements:**
-- Cover entity exposes `shade_type` as a state attribute for visibility in UI
-- Calibration button entity provides one-click calibration from device page
-- No need to navigate to Developer Tools → Services
+2. **ZHA Quirk** (`custom_zha_quirks/ubisys_j1.py`) - Extends ZHA with Ubisys manufacturer-specific attributes
+
+**Key Features:**
+- Auto-discovery of J1 devices paired with ZHA (v1.1+)
+- Smart feature filtering based on configured shade type
+- One-click calibration via button entity or service
+- Motor stall detection for reliable limit finding
+- Per-device locking prevents concurrent calibrations
+- Comprehensive logging with phase-based structure
 
 ## Architecture
 
@@ -50,19 +56,167 @@ Mapping defined in `const.py` as `SHADE_TYPE_TO_FEATURES` and `SHADE_TYPE_TO_WIN
 
 This allows the rest of the integration to access these attributes without specifying the manufacturer code each time.
 
-### Calibration Sequence
+### Calibration Architecture (v1.1+)
 
-The calibration script (`python_scripts/ubisys_j1_calibrate.py`) executes a 7-step sequence:
+The calibration module (`calibration.py`) implements a **5-phase automated calibration** using **motor stall detection**:
 
-1. Set `WindowCoveringType` based on shade type
-2. Move to fully open (via Home Assistant cover service)
-3. Write 0 to `current_position_lift` attribute (reset counter)
-4. Move to fully closed (while device counts steps)
-5. Read `total_steps` attribute (manufacturer-specific)
-6. Read `lift_to_tilt_transition_steps` (venetian only)
-7. Fire event and create notification
+**Phase 1: Preparation**
+- Enter calibration mode (mode=0x02)
+- Write configured_mode based on shade type
 
-**Key insight**: Calibration uses Home Assistant services for movement (not direct Zigbee commands) because it needs the full async/await infrastructure and state polling.
+**Phase 2: Find Top Limit**
+- Send up_open command (continuous movement)
+- Monitor position every 0.5s until stall detected (position unchanged for 3s)
+- Send stop command
+
+**Phase 3: Find Bottom Limit + Measure**
+- Send down_close command
+- Monitor position until stall
+- Send stop command
+- Read total_steps (device calculated during movement)
+
+**Phase 4: Verification**
+- Send up_open command
+- Monitor until stall (should reach same top position)
+- Send stop command
+
+**Phase 5: Finalization**
+- Write lift_to_tilt_transition_steps (0 for rollers, 100 for venetian)
+- Exit calibration mode (mode=0x00)
+
+**Key Design Decisions:**
+
+1. **Motor Stall Detection**: J1 doesn't signal when limit reached, so we monitor position attribute. Position unchanged for 3 seconds = motor stalled at limit.
+
+2. **Phase-Based Architecture**: Each phase is a separate function for:
+   - Independent testing
+   - Clear error messages (know which phase failed)
+   - Easier maintenance and modification
+
+3. **Direct Cluster Commands**: Uses cluster.command() for up_open/down_close (not HA services) because we need low-level control and timeout handling.
+
+4. **Concurrency Control**: asyncio.Lock per device prevents race conditions from simultaneous calibrations.
+
+## Code Quality Standards
+
+### Function Complexity Limits
+
+- **Maximum function size**: 100 lines (target: <60 lines)
+- **Maximum complexity**: Keep functions focused on single responsibility
+- **Nesting limit**: Maximum 2-3 levels of indentation
+
+**Rationale**: The v1.1.1 refactoring reduced _perform_calibration from 274 lines to 81 lines by extracting phases. This improved:
+- Testability (each phase can be tested independently)
+- Debuggability (know which phase failed)
+- Maintainability (change one phase without affecting others)
+
+### Documentation Requirements
+
+**All functions must have docstrings that include:**
+1. One-line summary
+2. Detailed explanation of WHY (not just WHAT)
+3. Args with types, valid values, and constraints
+4. Returns with typical values and units
+5. Raises with conditions and user actions
+6. Examples for complex functions
+7. Design decisions and tradeoffs
+
+**Example of good docstring:**
+```python
+async def _wait_for_stall(
+    hass: HomeAssistant,
+    entity_id: str,
+    phase_description: str,
+    timeout: int = PER_MOVE_TIMEOUT,
+) -> int:
+    \"\"\"Wait for motor stall via position monitoring.
+
+    The J1 motor doesn't signal when it reaches a limit. We detect
+    stall by monitoring the position attribute - if unchanged for
+    STALL_DETECTION_TIME seconds, the motor has stalled.
+
+    Why 3 seconds?
+    - <2s: False positives (motor may pause briefly)
+    - >5s: Poor UX (user perceives lag)
+    - 3s: Balanced (proven by deCONZ implementation)
+
+    Args:
+        hass: Home Assistant instance for state access
+        entity_id: ZHA cover entity to monitor
+        phase_description: Description for logging (e.g., "finding top")
+        timeout: Max seconds to wait before raising timeout error
+
+    Returns:
+        Final position when motor stalled (e.g., 100 for fully open)
+
+    Raises:
+        HomeAssistantError: If motor doesn't stall within timeout.
+            Usually indicates jammed motor or disconnected device.
+    \"\"\"
+```
+
+### Security Patterns
+
+**Service Parameter Validation** (Added in v1.1.1):
+```python
+# ALWAYS validate service parameters
+entity_id = call.data.get("entity_id")
+
+# Check type
+if not isinstance(entity_id, str):
+    raise HomeAssistantError(f"entity_id must be string, got {type(entity_id).__name__}")
+
+# Verify entity exists
+entity_entry = entity_registry.async_get(entity_id)
+if not entity_entry:
+    raise HomeAssistantError(f"Entity {entity_id} not found")
+
+# Verify platform ownership
+if entity_entry.platform != DOMAIN:
+    raise HomeAssistantError(
+        f"Entity {entity_id} is not a Ubisys entity (platform: {entity_entry.platform})"
+    )
+```
+
+**Concurrency Control** (Added in v1.1.1):
+```python
+# Use asyncio.Lock, NOT set-based tracking
+# Set-based has TOCTOU race condition
+
+# Get or create lock for device
+if "calibration_locks" not in hass.data.setdefault(DOMAIN, {}):
+    hass.data[DOMAIN]["calibration_locks"] = {}
+
+locks = hass.data[DOMAIN]["calibration_locks"]
+if device_ieee not in locks:
+    locks[device_ieee] = asyncio.Lock()
+
+device_lock = locks[device_ieee]
+
+# Non-blocking check
+if device_lock.locked():
+    raise HomeAssistantError("Calibration already in progress")
+
+# Atomic acquire
+async with device_lock:
+    await perform_operation()
+    # Lock automatically released
+```
+
+### Testing Strategy
+
+**Unit Tests**: Test individual functions with mocked dependencies
+- Mock cluster for calibration phase functions
+- Mock hass.states for stall detection
+- Test error conditions
+
+**Integration Tests**: Test with real ZHA integration
+- Requires ZHA test setup
+- Use test fixtures for device pairing
+
+**Manual Testing**: Test with real hardware
+- Required for calibration validation
+- Document test scenarios in `docs/testing.md`
 
 ## Development Commands
 
@@ -139,16 +293,58 @@ grep -i ubisys ~/.homeassistant/home-assistant.log | tail -50
 
 ### Modifying Calibration Sequence
 
-The calibration script is a **python_script** (not standard Python module), with limitations:
-- No imports beyond Home Assistant builtins
-- Uses `hass`, `data`, `logger` as globals
-- Must use `hass.async_create_task()` for async execution
-- Access to `hass.services.async_call()`, `hass.states.get()`, `hass.bus.async_fire()`
+Calibration is implemented in `custom_components/ubisys/calibration.py` as a service with phase-based architecture.
 
-To modify:
-1. Edit `python_scripts/ubisys_j1_calibrate.py`
-2. Reload python_script integration or restart Home Assistant
-3. Test via `ubisys.calibrate` service call
+**To add a new calibration phase:**
+
+1. Create phase function following the naming pattern:
+```python
+async def _calibration_phase_N_description(
+    hass: HomeAssistant,
+    cluster: Cluster,
+    entity_id: str,
+) -> Optional[ReturnType]:
+    """PHASE N: [Description].
+
+    [Detailed explanation of what this phase does and why]
+
+    Args:
+        hass: Home Assistant instance
+        cluster: WindowCovering cluster
+        entity_id: ZHA cover entity for monitoring
+
+    Returns:
+        [What this phase returns, if anything]
+
+    Raises:
+        HomeAssistantError: [Conditions that cause failure]
+    """
+    _LOGGER.info("═══ PHASE N: [Description] ═══")
+
+    # Step implementation
+    _LOGGER.debug("Step X: [What we're doing]")
+    # ... code ...
+
+    _LOGGER.info("✓ PHASE N Complete: [Result]")
+    return result
+```
+
+2. Add phase call to `_perform_calibration()` orchestrator:
+```python
+async def _perform_calibration(...) -> None:
+    # ... existing phases ...
+    result = await _calibration_phase_N_description(hass, cluster, entity_id)
+    # ... remaining phases ...
+```
+
+3. Update module docstring to include new phase
+4. Add tests for new phase function
+5. Update `docs/calibration.md` if user-visible
+
+**To modify stall detection:**
+- Edit `_wait_for_stall()` function
+- Constants are at module level: `STALL_DETECTION_TIME`, `STALL_DETECTION_INTERVAL`
+- Be careful: changes affect all phases that use stall detection
 
 ### State Synchronization Pattern
 
