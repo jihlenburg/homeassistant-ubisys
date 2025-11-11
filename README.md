@@ -160,34 +160,35 @@ automation:
 
 ## 🔧 Calibration Process
 
-The calibration service performs the following steps automatically:
+The enhanced calibration service uses **motor stall detection** to automatically find the physical limits of your blind. No matter where the blind starts, calibration will work correctly.
 
-1. **Set Window Covering Type** - Configures the device based on your shade type
-2. **Move to Open** - Moves the shade to fully open position
-3. **Reset Counter** - Sets the position counter to zero
-4. **Move to Closed** - Moves to fully closed while counting motor steps
-5. **Read Total Steps** - Retrieves and stores the total step count
-6. **Read Tilt Steps** - For venetian blinds, reads tilt transition steps
-7. **Notification** - Sends a completion notification with results
+### Calibration Steps
+
+1. **Enter Calibration Mode** - Device enters special calibration mode
+2. **Find Top Limit** - Moves UP until motor stalls at fully open position
+3. **Find Bottom Limit** - Moves DOWN until motor stalls at fully closed position
+4. **Measure Total Steps** - Device auto-calculates travel distance
+5. **Verification** - Returns to top to confirm calibration
+6. **Configure Device** - Writes tilt settings based on shade type
+7. **Exit Calibration Mode** - Returns to normal operation
 
 ### What You'll See
 
-During calibration (30-90 seconds):
-- The shade opens completely
+During calibration (60-120 seconds):
+- The blind moves to fully open (motor stalls at top)
 - Brief pause
-- The shade closes completely
-- You'll receive a notification when complete
+- The blind moves to fully closed (motor stalls at bottom)
+- Brief pause
+- The blind returns to fully open (verification)
+- Calibration complete!
 
-**Success Notification:**
-```
-Calibration Complete
+**Important**: The blind will automatically find its limits regardless of starting position. Motor stall detection ensures precise calibration.
 
-Ubisys device cover.bedroom_shade has been calibrated successfully.
+### Expected Duration
+- **Roller/Cellular/Vertical**: 60-90 seconds
+- **Venetian Blinds**: 90-120 seconds
 
-Shade type: venetian
-Total steps: 4523
-Tilt transition steps: 267
-```
+Check logs for detailed calibration progress and results.
 
 ## 📖 Usage Examples
 
@@ -334,7 +335,7 @@ The supported features will update immediately. Re-run calibration after changin
 
 1. Run the calibration service: `ubisys.calibrate_j1` or click the Calibrate button
 2. Make sure the shade can move freely (no obstructions)
-3. Ensure the shade is at a known position before calibration
+3. **No need to position the blind** - calibration automatically finds limits via motor stall detection
 
 ### Tilt controls don't appear
 
