@@ -1,14 +1,35 @@
 calibrate_j1:
   name: Calibrate Ubisys J1
   description: >
-    Run the automated calibration sequence for a Ubisys J1 window covering controller.
-    This will move the cover through its full range to measure total steps and configure
-    the device for the selected shade type (including tilt settings for venetian blinds).
-    The calibration process takes approximately 2 minutes to complete.
+    Calibrate your Ubisys J1 blind/shade using automatic motor stall detection.
+
+
+    **What happens during calibration:**
+
+    1. Blind moves UP until it reaches the top (motor stalls)
+
+    2. Blind moves DOWN until it reaches the bottom (motor stalls)
+
+    3. Blind moves back UP to verify (returns to top)
+
+    4. Device measures and stores total travel distance
+
+
+    **Duration:** 60-120 seconds depending on blind size
+
+
+    **Important:** The blind will automatically find its limits no matter where it starts.
+    You do NOT need to position it at a specific location before calibration.
+
+
+    **Works for:** Roller shades, cellular shades, vertical blinds, and venetian blinds.
+
+
+    Make sure the blind can move freely without obstructions before starting.
   fields:
     entity_id:
-      name: Entity
-      description: The Ubisys J1 cover entity to calibrate.
+      name: Cover Entity
+      description: The Ubisys J1 cover entity you want to calibrate.
       required: true
       selector:
         entity:
