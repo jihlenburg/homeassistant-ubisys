@@ -55,15 +55,81 @@ SETTLE_TIME = 1.0  # Wait 1 second after stopping before next move
 
 
 async def async_calibrate_j1(hass: HomeAssistant, call: ServiceCall) -> None:
-    """Service handler for J1 calibration.
+    """Service handler for ubisys.calibrate_j1 service.
 
-    Validates input parameters and delegates to calibration logic.
+    This is the main entry point for calibration. It performs comprehensive
+    validation, enforces concurrency control, and delegates to the calibration
+    orchestrator.
 
-    Service data:
-        entity_id: Entity ID of the Ubisys cover to calibrate
+    Architecture Decision: Why a service, not a cover method?
+
+    We implement calibration as a domain service (ubisys.calibrate_j1) rather
+    than a cover entity method for several reasons:
+        1. Separation of concerns: Calibration is a device operation, not a cover state operation
+        2. Reusability: Service can be called from automations, scripts, UI, and button entity
+        3. Discoverability: Shows up in Developer Tools → Services with full documentation
+        4. Consistency: Follows Home Assistant patterns (e.g., homeassistant.update_entity)
+
+    Security & Validation (Added v1.1.1):
+
+    Performs rigorous parameter validation to prevent:
+        - Type confusion attacks (entity_id must be string)
+        - Wrong platform access (entity must be ubisys, not zha or other)
+        - Missing entity errors (entity must exist in registry)
+
+    Concurrency Control (Added v1.1.1):
+
+    Uses asyncio.Lock (not set-based tracking) to prevent race conditions:
+        - Per-device locking (different devices can calibrate simultaneously)
+        - Atomic check-and-lock operation (eliminates TOCTOU vulnerability)
+        - Automatic lock release via context manager
+        - Clear error message if already in progress
+
+    Service Flow:
+        1. Validate entity_id parameter (type, existence, platform)
+        2. Extract device info from config entry
+        3. Find ZHA cover entity for monitoring
+        4. Acquire device-specific lock (fail if already locked)
+        5. Execute calibration phases
+        6. Release lock automatically
+
+    Service Data:
+        entity_id (required): Entity ID of Ubisys cover to calibrate
+                             Must be a ubisys platform entity (not ZHA entity)
+                             Example: "cover.bedroom_j1"
 
     Raises:
-        HomeAssistantError: If parameters invalid or entity not found
+        HomeAssistantError: For any of these conditions:
+            - entity_id missing or not a string
+            - entity_id not found in entity registry
+            - entity is not a ubisys entity (wrong platform)
+            - config entry missing or invalid
+            - device information missing
+            - ZHA entity not found
+            - calibration already in progress for this device
+
+    Example Usage:
+        # Via service call
+        service: ubisys.calibrate_j1
+        data:
+          entity_id: cover.bedroom_shade
+
+        # Via automation
+        - service: ubisys.calibrate_j1
+          data:
+            entity_id: cover.bedroom_shade
+
+        # Via button entity (happens automatically when clicked)
+
+    Duration:
+        Typical: 60-120 seconds depending on blind size
+        Roller/Cellular: ~60-90 seconds
+        Venetian: ~90-120 seconds
+
+    See Also:
+        - _perform_calibration(): Orchestrates the 5-phase sequence
+        - button.py: UbisysCalibrationButton calls this service
+        - services.yaml: User-facing service documentation
     """
     entity_id = call.data.get("entity_id")
 
@@ -169,7 +235,46 @@ async def async_calibrate_j1(hass: HomeAssistant, call: ServiceCall) -> None:
 
 
 async def _find_zha_cover_entity(hass: HomeAssistant, device_id: str) -> str | None:
-    """Find the ZHA cover entity for a device."""
+    """Find the ZHA cover entity for a device.
+
+    Searches the entity registry for the ZHA cover entity that corresponds
+    to the given device_id. This is needed because calibration monitors the
+    ZHA entity's position attribute (not the ubisys wrapper entity).
+
+    Why Search for ZHA Entity?
+
+    The ubisys integration creates wrapper entities that delegate to ZHA entities:
+        - User interacts with: cover.bedroom_shade (ubisys wrapper)
+        - Calibration monitors: cover.bedroom_shade_2 (ZHA entity)
+
+    We need the ZHA entity because:
+        - It reports position attribute directly from device
+        - Updates faster than wrapper (no delegation overhead)
+        - More reliable for stall detection timing
+
+    Search Strategy:
+
+        1. Get entity registry
+        2. Find all entities for this device_id
+        3. Filter for platform="zha" AND domain="cover"
+        4. Return first match (should only be one)
+
+    Args:
+        hass: Home Assistant instance for registry access
+        device_id: Device ID from device registry
+
+    Returns:
+        ZHA cover entity_id (e.g., "cover.bedroom_shade_2"), or None if not found
+
+    Example:
+        >>> zha_entity = await _find_zha_cover_entity(hass, "abc123...")
+        >>> print(zha_entity)
+        cover.bedroom_shade_2
+
+    See Also:
+        - async_calibrate_j1(): Calls this to find entity for monitoring
+        - _wait_for_stall(): Uses this entity_id for position monitoring
+    """
     entity_registry = er.async_get(hass)
     entities = er.async_entries_for_device(entity_registry, device_id)
 
@@ -254,16 +359,67 @@ async def _calibration_phase_1_enter_mode(
 ) -> None:
     """PHASE 1: Enter calibration mode and configure shade type.
 
-    Steps:
-    1. Enter calibration mode (mode=0x02)
-    2. Write configured_mode based on shade type
+    Prepares the Ubisys J1 device for calibration by entering a special
+    device mode and configuring the window covering type.
+
+    What is Calibration Mode?
+
+    The J1 has a special calibration mode (manufacturer-specific attribute 0x0017)
+    with these values:
+        - 0x00: Normal operation mode
+        - 0x02: Calibration mode (what we set here)
+
+    In calibration mode, the device:
+        - Counts motor steps during movement
+        - Calculates total_steps automatically
+        - Allows writing special configuration attributes
+        - Disables normal position limit enforcement
+
+    Why Set configured_mode?
+
+    The configured_mode attribute (0x1000) tells the device what type of window
+    covering is attached. This affects how the device interprets commands and
+    calculates positions. Values from const.py SHADE_TYPE_TO_WINDOW_COVERING_TYPE:
+        - 0x00: Roller shade / Cellular shade (position only)
+        - 0x04: Vertical blind (position only)
+        - 0x08: Venetian blind / Exterior venetian (position + tilt)
+
+    Phase Sequence:
+        Step 1: Write mode attribute = 0x02 (enter calibration mode)
+                Wait SETTLE_TIME (1s) for device to enter mode
+
+        Step 2: Write configured_mode based on shade type
+                Maps shade_type string → WindowCoveringType enum value
+                Wait SETTLE_TIME (1s) for device to accept configuration
+
+    Why the delays?
+
+    SETTLE_TIME (1s) after each write allows the device to:
+        - Process the attribute write
+        - Update internal state
+        - Prepare for next command
+
+    Skipping delays can cause subsequent commands to fail because device
+    hasn't finished processing the mode change.
 
     Args:
-        cluster: WindowCovering cluster instance
-        shade_type: Type of shade being calibrated
+        cluster: WindowCovering cluster for Zigbee communication
+        shade_type: Shade type from const.py (roller, cellular, vertical,
+                   venetian, exterior_venetian)
 
     Raises:
-        HomeAssistantError: If any step fails
+        HomeAssistantError: If either write operation fails
+            - Mode write failure → Zigbee communication issue
+            - configured_mode write failure → Invalid shade type or cluster issue
+
+    Example:
+        >>> await _calibration_phase_1_enter_mode(cluster, "venetian")
+        # Device now in calibration mode, configured as venetian blind
+
+    See Also:
+        - _enter_calibration_mode(): Helper that writes mode=0x02
+        - _exit_calibration_mode(): Reverses this (mode=0x00)
+        - const.py SHADE_TYPE_TO_WINDOW_COVERING_TYPE: Mappings
     """
     _LOGGER.info("═══ PHASE 1: Entering calibration mode ═══")
 
@@ -301,18 +457,46 @@ async def _calibration_phase_2_find_top(
 ) -> int:
     """PHASE 2: Find top limit via motor stall detection.
 
-    Moves blind UP until motor stalls, indicating fully open position.
+    Moves the blind upward until the motor stalls at the fully open position.
+    This establishes the top reference point for the calibration.
+
+    Phase Sequence:
+        Step 3: Send up_open command (continuous upward movement)
+        Step 4: Monitor position via stall detection algorithm
+        Step 5: Send stop command when motor stalls
+
+    Why Stall Detection?
+
+    The J1 motor doesn't have limit switches or provide a "reached limit" signal.
+    We must detect stall by monitoring the position attribute. See _wait_for_stall()
+    for detailed algorithm explanation.
+
+    Why Find Top First?
+
+    Calibration sequence is always: top → bottom → top (verification)
+        - Ensures consistent reference point
+        - Follows deCONZ proven sequence
+        - Allows device to count steps from known position
 
     Args:
-        hass: Home Assistant instance
-        cluster: WindowCovering cluster instance
-        entity_id: Entity ID for stall detection
+        hass: Home Assistant instance for state monitoring
+        cluster: WindowCovering cluster for sending commands
+        entity_id: ZHA cover entity ID for position monitoring
 
     Returns:
-        Final position when motor stalled (fully open)
+        Final position when motor stalled at top (typically 100 = fully open)
 
     Raises:
-        HomeAssistantError: If movement times out or fails
+        HomeAssistantError: If up_open command fails or timeout occurs
+
+    Example:
+        >>> pos = await _calibration_phase_2_find_top(hass, cluster, entity_id)
+        >>> print(f"Top limit found at position {pos}")
+        Top limit found at position 100
+
+    See Also:
+        - _wait_for_stall(): Stall detection algorithm
+        - _calibration_phase_3_find_bottom(): Next phase
     """
     _LOGGER.info("═══ PHASE 2: Finding top limit (fully open) ═══")
 
@@ -505,18 +689,55 @@ async def _calibration_phase_4_verify(
 ) -> int:
     """PHASE 4: Verification - return to top position.
 
-    Moves blind back UP to verify calibration was successful.
+    Moves blind back to top to verify calibration was successful. This ensures
+    the device correctly learned the limits and can reproduce the top position.
+
+    Why Verify?
+
+    After finding top → bottom → measuring total_steps, we return to top to:
+        1. Confirm device understood the calibration
+        2. Verify total_steps measurement was accurate
+        3. Leave blind in consistent state (fully open)
+        4. Detect any calibration errors before finalizing
+
+    What Success Looks Like:
+
+    If calibration worked correctly:
+        - Motor should stall at same position as Phase 2
+        - Position should be ~100 (fully open)
+        - Should take similar time as Phase 2
+
+    What Indicates Problems:
+
+    If verification fails:
+        - Stalls at different position → total_steps incorrect
+        - Times out → motor issue or obstruction
+        - Stalls too early → device didn't learn limits
+
+    Phase Sequence:
+        Step 10: Send up_open command
+        Step 11: Monitor until stall (should match Phase 2 position)
+        Step 12: Send stop command
 
     Args:
-        hass: Home Assistant instance
-        cluster: WindowCovering cluster instance
-        entity_id: Entity ID for stall detection
+        hass: Home Assistant instance for state monitoring
+        cluster: WindowCovering cluster for commands
+        entity_id: ZHA cover entity ID for position monitoring
 
     Returns:
-        Final position after verification (should be top)
+        Final position when stalled (should be ~100, matching Phase 2)
 
     Raises:
-        HomeAssistantError: If verification movement fails
+        HomeAssistantError: If up_open fails or timeout occurs
+
+    Example:
+        >>> pos = await _calibration_phase_4_verify(hass, cluster, entity_id)
+        >>> print(f"Verification complete, position {pos}")
+        Verification complete, position 100
+
+    See Also:
+        - _calibration_phase_2_find_top(): Should match this position
+        - _wait_for_stall(): Position monitoring algorithm
     """
     _LOGGER.info("═══ PHASE 4: Verification - returning to top ═══")
 
@@ -555,15 +776,54 @@ async def _calibration_phase_5_finalize(
 ) -> None:
     """PHASE 5: Write tilt steps and exit calibration mode.
 
-    Configures tilt settings based on shade type and exits calibration mode.
+    Finalizes calibration by configuring tilt settings and returning device
+    to normal operation mode.
+
+    What are Tilt Steps?
+
+    The lift_to_tilt_transition_steps attribute (0x1001) tells the device how
+    many motor steps are needed to fully tilt the slats on a venetian blind.
+
+    Values from const.py SHADE_TYPE_TILT_STEPS:
+        - 0: Roller, cellular, vertical (no tilt capability)
+        - 100: Venetian blinds (typical value for full tilt range)
+
+    Why 100 for Venetian?
+
+    This is a typical value that works for most venetian blinds. The actual
+    mechanical tilt range is much smaller than the full lift range, so 100
+    steps (vs. 1000-20000 for full lift) provides adequate tilt resolution.
+
+    Phase Sequence:
+        Step 13: Write lift_to_tilt_transition_steps based on shade type
+                 Wait SETTLE_TIME for device to accept
+
+        Step 14: Write mode=0x00 to exit calibration mode
+                 Device returns to normal operation
+
+    After This Phase:
+
+    Device is now:
+        - In normal operation mode
+        - Fully calibrated with limits learned
+        - Configured for correct shade type
+        - Ready for position/tilt commands
 
     Args:
-        cluster: WindowCovering cluster instance
-        shade_type: Type of shade (determines tilt steps)
-        total_steps: Total steps measured during calibration (for logging)
+        cluster: WindowCovering cluster for attribute writes
+        shade_type: Shade type (determines tilt_steps value)
+        total_steps: Total steps from Phase 3 (for logging only)
 
     Raises:
-        HomeAssistantError: If finalization fails
+        HomeAssistantError: If attribute writes fail
+
+    Example:
+        >>> await _calibration_phase_5_finalize(cluster, "venetian", 5000)
+        # Device now in normal mode, tilt_steps=100, total_steps=5000
+
+    See Also:
+        - _exit_calibration_mode(): Helper for mode=0x00 write
+        - const.py SHADE_TYPE_TILT_STEPS: Tilt step mappings
     """
     _LOGGER.info("═══ PHASE 5: Finalizing calibration ═══")
 
@@ -604,29 +864,79 @@ async def _perform_calibration(
     device_ieee: str,
     shade_type: str,
 ) -> None:
-    """Perform complete 5-phase calibration sequence.
+    """Orchestrate complete 5-phase calibration sequence.
 
-    This function orchestrates the automated calibration process using motor
-    stall detection to find physical limits and configure the device.
+    This is the main calibration orchestrator that coordinates all phases.
+    Each phase is a separate function for modularity, testing, and clarity.
 
-    Calibration Sequence:
-        1. Enter calibration mode and configure shade type
-        2. Find top limit (fully open) via stall detection
-        3. Find bottom limit (fully closed) and read total_steps
-        4. Verification move back to top
-        5. Write tilt settings and exit calibration mode
+    ═══════════════════════════════════════════════════════════════
+    CALIBRATION SEQUENCE OVERVIEW
+    ═══════════════════════════════════════════════════════════════
+
+    Phase 1: Preparation
+    ├─ Enter calibration mode (mode=0x02)
+    ├─ Configure shade type (configured_mode)
+    └─ Purpose: Prepare device for measurement
+
+    Phase 2: Find Top Limit
+    ├─ Send up_open → monitor → stop at stall
+    └─ Purpose: Establish fully-open reference point
+
+    Phase 3: Find Bottom + Measure
+    ├─ Send down_close → monitor → stop at stall
+    ├─ Read total_steps (device calculated during movement)
+    └─ Purpose: Establish fully-closed point + get travel distance
+
+    Phase 4: Verification
+    ├─ Send up_open → monitor → stop at stall
+    └─ Purpose: Verify calibration worked (should reach same top position)
+
+    Phase 5: Finalization
+    ├─ Write tilt_steps (0 for rollers, 100 for venetian)
+    ├─ Exit calibration mode (mode=0x00)
+    └─ Purpose: Configure device and return to normal operation
+
+    ═══════════════════════════════════════════════════════════════
+
+    Error Handling Strategy:
+
+    Each phase can fail independently. When a phase fails:
+        1. Exception is raised with phase-specific message
+        2. Cleanup handler attempts to exit calibration mode
+        3. Original error is re-raised to service handler
+        4. Service handler logs and reports to user
+
+    This ensures:
+        - User knows which phase failed (from error message)
+        - Device doesn't stay stuck in calibration mode
+        - Logs have full diagnostic information
+        - User can safely retry calibration
 
     Args:
-        hass: Home Assistant instance
-        zha_entity_id: Entity ID of the ZHA cover entity
-        device_ieee: IEEE address of the device
-        shade_type: Type of shade being calibrated
+        hass: Home Assistant instance for state access
+        zha_entity_id: ZHA cover entity ID for monitoring
+        device_ieee: Device IEEE address for cluster access
+        shade_type: Shade type for configuration
 
     Raises:
-        HomeAssistantError: If any calibration phase fails
+        HomeAssistantError: If any phase fails or cluster unavailable
 
     Duration:
-        Typically 60-120 seconds depending on blind size and motor speed.
+        Roller/Cellular: 60-90 seconds
+        Venetian: 90-120 seconds
+
+        Factors:
+        - Blind size (larger = more steps = slower)
+        - Motor speed (Ubisys default is conservative)
+        - Stall detection time (3s per limit × 3 movements = 9s minimum)
+
+    Example:
+        >>> await _perform_calibration(hass, "cover.zha_j1", "00:12:4b...", "roller")
+        # Calibration completes, logs show each phase
+
+    See Also:
+        - _calibration_phase_N_xxx(): Individual phase implementations
+        - async_calibrate_j1(): Service handler that calls this
     """
     _LOGGER.info("╔═══════════════════════════════════════════════════════╗")
     _LOGGER.info("║  Starting Calibration for %s", device_ieee.ljust(24) + "║")
@@ -681,13 +991,26 @@ async def _perform_calibration(
 
 
 async def _enter_calibration_mode(cluster: Cluster) -> None:
-    """Enter calibration mode by setting mode attribute to 0x02.
+    """Enter calibration mode by writing mode attribute.
+
+    Writes the calibration mode attribute (0x0017) with value 0x02 to enter
+    the special calibration mode.
+
+    What This Does:
+
+    Sets manufacturer-specific attribute 0x0017 = 0x02, which tells the device:
+        "I'm about to calibrate you. Start counting motor steps and prepare
+         to calculate total_steps when I move you from top to bottom."
 
     Args:
-        cluster: WindowCovering cluster instance
+        cluster: WindowCovering cluster for attribute write
 
     Raises:
-        HomeAssistantError: If entering calibration mode fails
+        HomeAssistantError: If attribute write fails (Zigbee communication issue)
+
+    See Also:
+        - _exit_calibration_mode(): Reverses this (mode=0x00)
+        - _calibration_phase_1_enter_mode(): Uses this helper
     """
     try:
         await cluster.write_attributes(
@@ -700,13 +1023,40 @@ async def _enter_calibration_mode(cluster: Cluster) -> None:
 
 
 async def _exit_calibration_mode(cluster: Cluster) -> None:
-    """Exit calibration mode by setting mode attribute to 0x00.
+    """Exit calibration mode by writing mode attribute.
+
+    Writes the calibration mode attribute (0x0017) with value 0x00 to return
+    the device to normal operation mode.
+
+    What This Does:
+
+    Sets manufacturer-specific attribute 0x0017 = 0x00, which tells the device:
+        "Calibration complete. Use the total_steps you calculated for normal
+         position control operations."
+
+    When This Is Called:
+
+        1. End of successful calibration (Phase 5)
+        2. During error cleanup (if calibration fails midway)
+
+    Why Cleanup Matters:
+
+    If device is left in calibration mode:
+        - Normal position commands may not work correctly
+        - User must power cycle device to recover
+        - Device behavior is undefined
+
+    Therefore, we ALWAYS try to exit calibration mode, even during error handling.
 
     Args:
-        cluster: WindowCovering cluster instance
+        cluster: WindowCovering cluster for attribute write
 
     Raises:
-        HomeAssistantError: If exiting calibration mode fails
+        HomeAssistantError: If attribute write fails
+
+    See Also:
+        - _enter_calibration_mode(): Sets mode=0x02
+        - _calibration_phase_5_finalize(): Normal exit path
     """
     try:
         await cluster.write_attributes(
@@ -891,14 +1241,52 @@ async def _wait_for_stall(
 async def _get_window_covering_cluster(
     hass: HomeAssistant, device_ieee: str
 ) -> Cluster | None:
-    """Get the WindowCovering cluster for a device.
+    """Get WindowCovering cluster for direct Zigbee access.
+
+    Obtains the WindowCovering cluster object for sending commands and reading/writing
+    attributes directly, bypassing Home Assistant's cover entity abstraction.
+
+    Why Direct Cluster Access?
+
+    Calibration requires low-level control that Home Assistant's cover entity
+    doesn't provide:
+        - Manufacturer-specific attribute access (mode, total_steps, tilt_steps)
+        - Precise command timing (up_open → wait → stop)
+        - Synchronous attribute reads during calibration
+        - Timeout control for movements
+
+    How It Works:
+
+        1. Convert IEEE address string → EUI64 object
+        2. Access ZHA gateway via integration data
+        3. Look up device in gateway's device registry
+        4. Find WindowCovering cluster on endpoint 2
+        5. Return cluster object for direct use
+
+    Why Endpoint 2?
+
+    The Ubisys J1 has two endpoints:
+        - Endpoint 1: Configuration and diagnostics
+        - Endpoint 2: Window covering control ← This is what we need
 
     Args:
-        hass: Home Assistant instance
-        device_ieee: IEEE address of the device
+        hass: Home Assistant instance for integration data access
+        device_ieee: Device IEEE address as string (e.g., "00:12:4b:00:1c:a1:b2:c3")
 
     Returns:
-        WindowCovering cluster instance or None if not found
+        WindowCovering cluster object, or None if not found
+
+    Raises:
+        HomeAssistantError: If IEEE address invalid or conversion fails
+
+    Example:
+        >>> cluster = await _get_window_covering_cluster(hass, "00:12:4b:00:1c...")
+        >>> await cluster.command("up_open")  # Direct command
+        >>> result = await cluster.read_attributes(["total_steps"])  # Direct read
+
+    See Also:
+        - custom_zha_quirks/ubisys_j1.py: Custom cluster definition
+        - _perform_calibration(): Uses this to get cluster access
     """
     # Get ZHA integration data
     zha_data = hass.data.get("zha")
