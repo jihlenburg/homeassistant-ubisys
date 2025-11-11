@@ -124,15 +124,18 @@ First, pair your Ubisys J1 with ZHA:
 
 ### 3. Calibrate Your Device
 
-Run the calibration service to set up accurate position tracking:
+Run the calibration service to set up accurate position tracking.
 
-**Via UI:**
-1. Go to **Developer Tools** → **Services**
-2. Service: `ubisys.calibrate`
-3. Entity: Select your Ubisys cover
-4. Click **Call Service**
+**Via Calibration Button (Easiest):**
 
-**Via YAML:**
+After adding the integration, you'll see a **Calibrate** button entity attached to your device:
+
+1. Go to the device page (Configuration → Devices → Your Ubisys J1)
+2. Click the **Calibrate** button
+3. The shade will automatically run through the calibration sequence
+
+**Or via Services:**
+
 ```yaml
 service: ubisys.calibrate
 data:
@@ -292,7 +295,19 @@ entities:
         entity_id: cover.bedroom_shade
 ```
 
-## 🔄 Changing Shade Type
+## 🔄 Viewing and Changing Shade Type
+
+### View Current Configuration
+
+The cover entity displays the configured shade type as an attribute:
+
+1. Go to **Developer Tools** → **States**
+2. Find your Ubisys cover entity (e.g., `cover.bedroom_shade`)
+3. Check the **Attributes** section for `shade_type`
+
+You can also see it in the device info or by clicking on the entity card.
+
+### Change Shade Type
 
 You can change the configured shade type at any time:
 

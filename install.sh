@@ -13,7 +13,19 @@ NC='\033[0m' # No Color
 
 # Configuration
 REPO_URL="https://raw.githubusercontent.com/jihlenburg/homeassistant-ubisys/main"
-HA_CONFIG_DIR="${HOME}/.homeassistant"
+
+# Auto-detect Home Assistant config directory
+if [ -d "/config" ]; then
+    # Home Assistant OS / Supervised
+    HA_CONFIG_DIR="/config"
+elif [ -d "${HOME}/.homeassistant" ]; then
+    # Home Assistant Core / Container
+    HA_CONFIG_DIR="${HOME}/.homeassistant"
+else
+    # Default fallback
+    HA_CONFIG_DIR="${HOME}/.homeassistant"
+fi
+
 BACKUP_DIR="${HA_CONFIG_DIR}/backups/ubisys_install_$(date +%Y%m%d_%H%M%S)"
 
 # Print colored message

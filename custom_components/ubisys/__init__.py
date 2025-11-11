@@ -21,7 +21,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.COVER]
+PLATFORMS: list[Platform] = [Platform.COVER, Platform.BUTTON]
 
 # Service schema for calibration
 CALIBRATE_SERVICE_SCHEMA = vol.Schema(
