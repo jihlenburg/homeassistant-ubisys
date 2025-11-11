@@ -167,3 +167,4 @@ test_output/
 *.tmp
 *.bak
 *.backup
+tmp/
