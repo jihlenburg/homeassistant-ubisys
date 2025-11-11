@@ -1,20 +1,22 @@
 # Ubisys Zigbee Devices for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/jihlenburg/homeassistant-ubisys)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/jihlenburg/homeassistant-ubisys)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A complete Home Assistant integration for Ubisys Zigbee window covering controllers, providing enhanced support with custom ZHA quirks, smart feature filtering, and automated calibration.
+A complete Home Assistant integration for Ubisys Zigbee window covering controllers, providing enhanced support with custom ZHA quirks, auto-discovery, smart feature filtering, and automated calibration.
 
 ## ✨ Features
 
+- 🔍 **Auto-Discovery** - Automatically detects J1 devices when paired with ZHA (v1.1+)
 - 🔌 **Custom ZHA Quirks** - Access manufacturer-specific attributes (total steps, tilt transition steps, configured mode)
 - 🎯 **Smart Feature Filtering** - Only show controls that match your shade type configuration
 - 🎚️ **Shade Type Support** - Roller, cellular, vertical blinds, venetian blinds, and exterior venetian blinds
-- 🔧 **Automated Calibration** - One-command calibration service for accurate position tracking
-- 🏗️ **Config Flow** - Easy setup through the Home Assistant UI
+- 🔧 **Automated Calibration** - One-click calibration button on device page
+- 🏗️ **Config Flow** - Easy setup through the Home Assistant UI with guided shade type selection
 - 📦 **HACS Compatible** - Simple installation and automatic updates
 - 🔄 **State Synchronization** - Real-time updates from the underlying ZHA entity
+- 🎛️ **Single Entity UX** - See one cover entity per device (ZHA entity auto-hidden)
 
 ## 🎛️ Supported Devices
 
@@ -54,10 +56,9 @@ curl -sSL https://raw.githubusercontent.com/jihlenburg/homeassistant-ubisys/main
 ```
 
 The installer will:
-- Create all required directories (`custom_components`, `custom_zha_quirks`, `python_scripts`)
+- Create all required directories (`custom_components`, `custom_zha_quirks`)
 - Download all integration files from GitHub
 - Install ZHA quirk for manufacturer-specific attributes
-- Install calibration Python script
 - Update your `configuration.yaml` with required settings
 - Create timestamped backups of existing files
 - Validate your Home Assistant configuration
@@ -85,42 +86,44 @@ The installer will:
 1. Download the latest release
 2. Copy `custom_components/ubisys` to your `config/custom_components/` directory
 3. Copy `custom_zha_quirks/ubisys_j1.py` to your `config/custom_zha_quirks/` directory
-4. Copy `python_scripts/ubisys_j1_calibrate.py` to your `config/python_scripts/` directory
-5. Add to `configuration.yaml`:
+4. Add to `configuration.yaml`:
 
 ```yaml
 zha:
   custom_quirks_path: custom_zha_quirks
-
-python_script:
 ```
 
-6. Restart Home Assistant
+5. Restart Home Assistant
 
 ## 🚀 Quick Start
 
-### 1. Pair Your Device
+### 1. Pair Your Device with ZHA
 
-First, pair your Ubisys J1 with ZHA:
+Pair your Ubisys J1 with ZHA:
 
-1. Go to **Configuration** → **Integrations** → **ZHA**
+1. Go to **Settings** → **Devices & Services** → **ZHA**
 2. Click **Add Device**
-3. Put your J1 into pairing mode
-4. Wait for discovery and setup
+3. Put your J1 into pairing mode (hold the pairing button)
+4. Wait for ZHA to discover the device
 
-### 2. Add Ubisys Integration
+### 2. Configure via Auto-Discovery (v1.1+)
 
-1. Go to **Configuration** → **Integrations**
-2. Click **+ Add Integration**
-3. Search for "Ubisys"
-4. Select your ZHA cover entity from the dropdown
-5. Choose your shade type:
-   - **Roller Shade** - Standard roller blinds
-   - **Cellular Shade** - Honeycomb/cellular blinds
-   - **Vertical Blind** - Vertical slat blinds
-   - **Venetian Blind** - Indoor horizontal slat blinds with tilt
-   - **Exterior Venetian Blind** - Outdoor horizontal slat blinds with tilt
-6. Click **Submit**
+**The integration will automatically detect your J1!**
+
+After pairing with ZHA, a configuration notification will appear:
+
+1. Click the notification or go to **Settings** → **Devices & Services**
+2. Look for "Ubisys J1" in discovered integrations
+3. Click **Configure**
+4. Select your shade type:
+   - **Roller Shade** - Standard roller blinds (position only)
+   - **Cellular Shade** - Honeycomb/cellular blinds (position only)
+   - **Vertical Blind** - Vertical slat blinds (position only)
+   - **Venetian Blind** - Indoor horizontal slat blinds (position + tilt)
+   - **Exterior Venetian Blind** - Outdoor horizontal slat blinds (position + tilt)
+5. Click **Submit**
+
+**Result:** You'll see one cover entity with the correct features. The original ZHA entity is automatically hidden to prevent duplicates.
 
 ### 3. Calibrate Your Device
 
@@ -137,7 +140,7 @@ After adding the integration, you'll see a **Calibrate** button entity attached 
 **Or via Services:**
 
 ```yaml
-service: ubisys.calibrate
+service: ubisys.calibrate_j1
 data:
   entity_id: cover.bedroom_shade
 ```
@@ -150,7 +153,7 @@ automation:
       - platform: homeassistant
         event: start
     action:
-      - service: ubisys.calibrate
+      - service: ubisys.calibrate_j1
         data:
           entity_id: cover.bedroom_shade
 ```
@@ -290,7 +293,7 @@ entities:
     name: Calibrate
     tap_action:
       action: call-service
-      service: ubisys.calibrate
+      service: ubisys.calibrate_j1
       service_data:
         entity_id: cover.bedroom_shade
 ```
@@ -329,7 +332,7 @@ The supported features will update immediately. Re-run calibration after changin
 
 ### Position is inaccurate
 
-1. Run the calibration service: `ubisys.calibrate`
+1. Run the calibration service: `ubisys.calibrate_j1` or click the Calibrate button
 2. Make sure the shade can move freely (no obstructions)
 3. Ensure the shade is at a known position before calibration
 
@@ -344,7 +347,7 @@ The supported features will update immediately. Re-run calibration after changin
 1. Ensure the shade has power and is responsive to basic commands
 2. Check Home Assistant logs for error details
 3. Manually test open/close commands through ZHA first
-4. Make sure python_script integration is enabled
+4. Verify the device is properly paired and accessible
 
 ### Integration not showing in UI
 
@@ -381,19 +384,19 @@ data:
 ```
 homeassistant-ubisys/
 ├── custom_components/ubisys/     # Main integration
-│   ├── __init__.py              # Setup and services
-│   ├── config_flow.py           # Configuration UI
-│   ├── const.py                 # Constants
-│   ├── cover.py                 # Cover platform
+│   ├── __init__.py              # Setup, discovery, and service registration
+│   ├── button.py                # Calibration button platform
+│   ├── calibration.py           # Calibration module
+│   ├── config_flow.py           # Configuration UI with auto-discovery
+│   ├── const.py                 # Constants and mappings
+│   ├── cover.py                 # Wrapper cover platform
 │   ├── manifest.json            # Integration metadata
 │   ├── services.yaml            # Service definitions
 │   ├── strings.json             # UI strings
 │   └── translations/
 │       └── en.json              # English translations
 ├── custom_zha_quirks/
-│   └── ubisys_j1.py             # ZHA quirk for J1
-├── python_scripts/
-│   └── ubisys_j1_calibrate.py   # Calibration script
+│   └── ubisys_j1.py             # ZHA quirk for J1 (submission-ready)
 ├── docs/                        # Documentation
 ├── install.sh                   # Installation script
 └── README.md                    # This file
