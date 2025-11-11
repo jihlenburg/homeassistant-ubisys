@@ -1,3 +1,7 @@
+# =============================================================================
+# J1 WINDOW COVERING SERVICES
+# =============================================================================
+
 calibrate_j1:
   name: Calibrate Ubisys J1
   description: >
@@ -35,3 +39,182 @@ calibrate_j1:
         entity:
           domain: cover
           integration: ubisys
+
+# =============================================================================
+# D1 DIMMER CONFIGURATION SERVICES
+# =============================================================================
+
+configure_d1_phase_mode:
+  name: Configure D1 Phase Mode
+  description: >
+    Configure phase control mode for Ubisys D1 universal dimmer.
+
+
+    **⚠️ SAFETY WARNING:** Incorrect phase mode can damage your dimmer or connected bulbs.
+    Always start with "automatic" mode and only change if experiencing issues.
+
+
+    **Phase Modes:**
+
+    - **automatic** (default): Auto-detect load type (safest option)
+
+    - **forward**: Leading edge dimming for resistive/inductive loads
+
+    - **reverse**: Trailing edge dimming for capacitive loads (most LEDs)
+
+
+    **When to use each mode:**
+
+    - **automatic**: Use this by default. The D1 will automatically detect the load type.
+
+    - **forward**: Only if experiencing issues with resistive loads (incandescent bulbs, halogen).
+
+    - **reverse**: Only if experiencing LED flickering or buzzing with automatic mode.
+
+
+    **Symptoms that may require changing mode:**
+
+    - LED flickering at low brightness → Try "reverse" mode
+
+    - Buzzing or humming sound → Try "reverse" mode
+
+    - Dimmer getting excessively hot → Contact manufacturer
+
+
+    **Note:** Phase mode configuration is stored persistently in the device.
+  fields:
+    entity_id:
+      name: Light Entity
+      description: The Ubisys D1 light entity you want to configure.
+      required: true
+      selector:
+        entity:
+          domain: light
+          integration: ubisys
+    phase_mode:
+      name: Phase Mode
+      description: Phase control mode (automatic, forward, or reverse).
+      required: true
+      default: "automatic"
+      selector:
+        select:
+          options:
+            - "automatic"
+            - "forward"
+            - "reverse"
+
+configure_d1_ballast:
+  name: Configure D1 Ballast
+  description: >
+    Configure ballast minimum/maximum brightness levels for Ubisys D1 dimmer.
+
+
+    **What this does:**
+
+    - **Minimum level:** Prevents LED flickering at low brightness
+
+    - **Maximum level:** Limits maximum brightness (for energy savings or load protection)
+
+
+    **Typical values:**
+
+    - **Minimum:** 10-20 (prevents flickering, lower = smoother dimming)
+
+    - **Maximum:** 254 (no limit, lower values limit brightness)
+
+
+    **How to find the right minimum level:**
+
+    1. Set minimum to 1 and test dimming down
+
+    2. Note the brightness level where flickering starts
+
+    3. Set minimum to slightly above that level
+
+
+    **Examples:**
+
+    - Standard LED bulbs: min_level=15, max_level=254
+
+    - Sensitive LED bulbs: min_level=25, max_level=254
+
+    - Energy saving mode: min_level=10, max_level=200
+
+
+    **Valid range:** 1-254 for both min and max (min must be < max)
+
+
+    **Note:** Settings are stored persistently in the device.
+  fields:
+    entity_id:
+      name: Light Entity
+      description: The Ubisys D1 light entity you want to configure.
+      required: true
+      selector:
+        entity:
+          domain: light
+          integration: ubisys
+    min_level:
+      name: Minimum Level (optional)
+      description: Minimum brightness level (1-254). Leave empty to keep current setting.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 254
+          mode: box
+    max_level:
+      name: Maximum Level (optional)
+      description: Maximum brightness level (1-254). Leave empty to keep current setting.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 254
+          mode: box
+
+configure_d1_inputs:
+  name: Configure D1 Inputs
+  description: >
+    Configure physical switch inputs for Ubisys D1 dimmer.
+
+
+    **⚠️ ADVANCED FEATURE:** This service is not yet implemented.
+
+
+    **What this will do (when implemented):**
+
+    Configure how physical wall switches connected to the D1 interact with the dimmer:
+
+    - **Momentary:** Push button switches (press and release)
+
+    - **Toggle:** Traditional on/off switches
+
+    - **Decoupled:** Physical switch controls Zigbee bindings, not local output
+
+
+    **Most users don't need this:** The default input configuration works for standard switches.
+
+
+    **Implementation status:** Phase 3 (requires testing with real D1 device)
+  fields:
+    entity_id:
+      name: Light Entity
+      description: The Ubisys D1 light entity you want to configure.
+      required: true
+      selector:
+        entity:
+          domain: light
+          integration: ubisys
+    input_config:
+      name: Input Configuration
+      description: Input configuration string (Ubisys format).
+      required: true
+      selector:
+        text:
+    input_actions:
+      name: Input Actions (optional)
+      description: Input actions string (Ubisys format). Leave empty to keep current setting.
+      required: false
+      selector:
+        text:

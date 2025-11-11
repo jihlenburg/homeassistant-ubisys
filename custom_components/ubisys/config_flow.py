@@ -1,4 +1,36 @@
-"""Config flow for Ubisys Zigbee integration."""
+"""Config flow for Ubisys Zigbee integration.
+
+This module handles the configuration flow for setting up Ubisys devices in
+Home Assistant. It supports multiple device types with type-specific configuration:
+
+Device Types:
+    - J1/J1-R: Window covering controllers (require shade type selection)
+    - D1/D1-R: Universal dimmers (no additional configuration needed)
+    - S1/S2: Power switches (future, no additional configuration needed)
+
+Flow Types:
+    1. Automatic Discovery (async_step_zha):
+       - Triggered when ZHA discovers a supported Ubisys device
+       - Detects device type and shows appropriate configuration steps
+
+    2. Manual Setup (async_step_manual):
+       - User selects from available Ubisys devices
+       - Continues to type-specific configuration
+
+Configuration Steps:
+    - J1 devices: Require shade type selection (roller, venetian, etc.)
+    - D1 devices: No additional configuration (skip to entry creation)
+    - Future devices: May have their own configuration steps
+
+Architecture Note:
+    This config flow uses device type detection (via get_device_type helper)
+    to determine which configuration steps to show. This keeps the flow
+    extensible for future device types while maintaining simplicity.
+
+See Also:
+    - const.py: Device model categorization (WINDOW_COVERING_MODELS, DIMMER_MODELS)
+    - const.py: get_device_type() - Helper to categorize devices
+"""
 
 from __future__ import annotations
 
@@ -19,6 +51,7 @@ from .const import (
     CONF_ZHA_CONFIG_ENTRY_ID,
     DOMAIN,
     SHADE_TYPES,
+    get_device_type,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -56,10 +89,31 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Handle user step for shade type selection.
+        """Handle user step for device-specific configuration.
 
         This step is shown either after ZHA discovery or when manually
-        adding the integration. It prompts for shade type selection.
+        adding the integration. The configuration shown depends on device type:
+
+        - J1 (window covering): Prompts for shade type selection
+        - D1 (dimmer): No configuration needed, directly creates entry
+        - Future devices: May show device-specific configuration
+
+        Device Type Detection:
+            Uses get_device_type() helper to categorize device by model.
+            This keeps the logic extensible for future device types.
+
+        Flow Logic:
+            1. Check if we have discovery data (if not, show device selection)
+            2. Detect device type from model
+            3. Route to appropriate configuration step:
+               - Window covering → shade type selection
+               - Dimmer → direct entry creation
+               - Unknown → error
+
+        Why This Design:
+            - Single entry point for all device types (simpler for users)
+            - Type-specific logic isolated and clear
+            - Easy to extend for future device types
         """
         errors: dict[str, str] = {}
 
@@ -67,44 +121,104 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if self._discovery_data is None:
             return await self.async_step_manual()
 
-        # Process user input
+        # Detect device type
+        model = self._discovery_data["model"]
+        device_type = get_device_type(model)
+
+        _LOGGER.debug(
+            "Config flow user step: model=%s, device_type=%s",
+            model,
+            device_type,
+        )
+
+        # Process user input (only for window covering devices that need shade type)
         if user_input is not None:
-            shade_type = user_input[CONF_SHADE_TYPE]
+            if device_type == "window_covering":
+                shade_type = user_input[CONF_SHADE_TYPE]
+            else:
+                shade_type = None  # Not applicable for non-window covering devices
 
             # Find the ZHA config entry ID
             zha_config_entry_id = await self._get_zha_config_entry_id()
             if not zha_config_entry_id:
                 errors["base"] = "zha_not_found"
             else:
+                # Build config entry data
+                entry_data = {
+                    CONF_DEVICE_IEEE: self._discovery_data["device_ieee"],
+                    CONF_DEVICE_ID: self._discovery_data["device_id"],
+                    CONF_ZHA_CONFIG_ENTRY_ID: zha_config_entry_id,
+                    "manufacturer": self._discovery_data["manufacturer"],
+                    "model": self._discovery_data["model"],
+                    "name": self._discovery_data["name"],
+                }
+
+                # Add shade type only for window covering devices
+                if device_type == "window_covering":
+                    entry_data[CONF_SHADE_TYPE] = shade_type
+
+                # Build title
+                if device_type == "window_covering":
+                    title = f"{self._discovery_data['name']} ({shade_type})"
+                else:
+                    title = f"{self._discovery_data['name']} ({model})"
+
                 # Create the config entry
                 return self.async_create_entry(
-                    title=f"{self._discovery_data['name']} ({shade_type})",
-                    data={
-                        CONF_DEVICE_IEEE: self._discovery_data["device_ieee"],
-                        CONF_DEVICE_ID: self._discovery_data["device_id"],
-                        CONF_SHADE_TYPE: shade_type,
-                        CONF_ZHA_CONFIG_ENTRY_ID: zha_config_entry_id,
-                        "manufacturer": self._discovery_data["manufacturer"],
-                        "model": self._discovery_data["model"],
-                        "name": self._discovery_data["name"],
-                    },
+                    title=title,
+                    data=entry_data,
                 )
 
-        # Show shade type selection form
-        data_schema = vol.Schema(
-            {
-                vol.Required(CONF_SHADE_TYPE, default="roller"): vol.In(SHADE_TYPES),
-            }
-        )
+        # Route to appropriate configuration step based on device type
+        if device_type == "window_covering":
+            # J1 devices need shade type selection
+            data_schema = vol.Schema(
+                {
+                    vol.Required(CONF_SHADE_TYPE, default="roller"): vol.In(SHADE_TYPES),
+                }
+            )
 
-        return self.async_show_form(
-            step_id="user",
-            data_schema=data_schema,
-            errors=errors,
-            description_placeholders={
-                "device_name": self._discovery_data.get("name", "Ubisys Device"),
-            },
-        )
+            return self.async_show_form(
+                step_id="user",
+                data_schema=data_schema,
+                errors=errors,
+                description_placeholders={
+                    "device_name": self._discovery_data.get("name", "Ubisys Device"),
+                },
+            )
+
+        elif device_type == "dimmer":
+            # D1 devices don't need additional configuration
+            # Directly create entry without showing form
+            zha_config_entry_id = await self._get_zha_config_entry_id()
+            if not zha_config_entry_id:
+                return self.async_abort(reason="zha_not_found")
+
+            _LOGGER.info(
+                "Creating config entry for D1 dimmer: %s",
+                self._discovery_data["name"],
+            )
+
+            return self.async_create_entry(
+                title=f"{self._discovery_data['name']} ({model})",
+                data={
+                    CONF_DEVICE_IEEE: self._discovery_data["device_ieee"],
+                    CONF_DEVICE_ID: self._discovery_data["device_id"],
+                    CONF_ZHA_CONFIG_ENTRY_ID: zha_config_entry_id,
+                    "manufacturer": self._discovery_data["manufacturer"],
+                    "model": self._discovery_data["model"],
+                    "name": self._discovery_data["name"],
+                },
+            )
+
+        else:
+            # Unknown device type
+            _LOGGER.error(
+                "Unknown device type '%s' for model '%s'",
+                device_type,
+                model,
+            )
+            return self.async_abort(reason="unsupported_device")
 
     async def async_step_manual(
         self, user_input: dict[str, Any] | None = None
@@ -221,7 +335,19 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class UbisysOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for Ubisys integration.
 
-    Allows changing the shade type after initial configuration.
+    Allows changing device-specific options after initial configuration:
+    - J1 (window covering): Change shade type
+    - D1 (dimmer): No options available (future: may add phase mode, ballast presets)
+    - Future devices: Device-specific options
+
+    Architecture Note:
+        The options shown depend on device type. Window covering devices show
+        shade type configuration, while other devices may show different options
+        or no options at all.
+
+        For D1 dimmers, configuration is done via services rather than options
+        flow because phase mode and ballast configuration are advanced settings
+        that shouldn't be changed frequently.
     """
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
@@ -231,37 +357,74 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Manage the options."""
-        if user_input is not None:
-            # Update config entry with new shade type
-            new_shade_type = user_input[CONF_SHADE_TYPE]
+        """Manage device-specific options.
 
-            # Update entry data (requires updating the entry itself since data is immutable)
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
-                data={**self.config_entry.data, CONF_SHADE_TYPE: new_shade_type},
+        Routes to appropriate options based on device type:
+        - Window covering: Show shade type configuration
+        - Dimmer: Show message that configuration is done via services
+        - Other: No options available
+        """
+        model = self.config_entry.data.get("model", "")
+        device_type = get_device_type(model)
+
+        _LOGGER.debug(
+            "Options flow init: model=%s, device_type=%s",
+            model,
+            device_type,
+        )
+
+        if device_type == "window_covering":
+            # Window covering devices: Allow changing shade type
+            if user_input is not None:
+                # Update config entry with new shade type
+                new_shade_type = user_input[CONF_SHADE_TYPE]
+
+                # Update entry data (requires updating the entry itself since data is immutable)
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry,
+                    data={**self.config_entry.data, CONF_SHADE_TYPE: new_shade_type},
+                )
+
+                # Reload the entry to apply changes
+                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+
+                return self.async_create_entry(title="", data={})
+
+            # Show current shade type
+            current_shade_type = self.config_entry.data.get(CONF_SHADE_TYPE, "roller")
+
+            data_schema = vol.Schema(
+                {
+                    vol.Required(CONF_SHADE_TYPE, default=current_shade_type): vol.In(
+                        SHADE_TYPES
+                    ),
+                }
             )
 
-            # Reload the entry to apply changes
-            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            return self.async_show_form(
+                step_id="init",
+                data_schema=data_schema,
+                description_placeholders={
+                    "device_name": self.config_entry.data.get("name", "Ubisys Device"),
+                },
+            )
 
-            return self.async_create_entry(title="", data={})
+        elif device_type == "dimmer":
+            # D1 dimmers: Configuration is done via services
+            # Show informational message
+            return self.async_abort(
+                reason="no_options",
+                description_placeholders={
+                    "device_name": self.config_entry.data.get("name", "Ubisys Device"),
+                    "info": (
+                        "D1 dimmer configuration is done via services. "
+                        "Use the 'ubisys.configure_d1_phase_mode' and "
+                        "'ubisys.configure_d1_ballast' services to configure "
+                        "phase control mode and ballast settings."
+                    ),
+                },
+            )
 
-        # Show current shade type
-        current_shade_type = self.config_entry.data.get(CONF_SHADE_TYPE, "roller")
-
-        data_schema = vol.Schema(
-            {
-                vol.Required(CONF_SHADE_TYPE, default=current_shade_type): vol.In(
-                    SHADE_TYPES
-                ),
-            }
-        )
-
-        return self.async_show_form(
-            step_id="init",
-            data_schema=data_schema,
-            description_placeholders={
-                "device_name": self.config_entry.data.get("name", "Ubisys Device"),
-            },
-        )
+        else:
+            # Unknown or unsupported device type
+            return self.async_abort(reason="no_options")

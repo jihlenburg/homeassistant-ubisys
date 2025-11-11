@@ -1,19 +1,40 @@
 """Ubisys Zigbee Integration for Home Assistant.
 
-This integration provides enhanced support for Ubisys Zigbee devices,
-starting with the J1 window covering controller. It creates wrapper
-entities with feature filtering based on shade type and provides
-calibration services.
+This integration provides enhanced support for Ubisys Zigbee devices with
+manufacturer-specific features not exposed by standard ZHA integration.
+
+Device Support:
+    - J1/J1-R: Window covering controllers with calibration support
+    - D1/D1-R: Universal dimmers with phase control and ballast configuration
+    - S1/S2: Power switches (planned)
 
 Architecture:
-- Listens for ZHA device discovery
-- Auto-triggers config flow for supported devices
-- Creates wrapper entities with filtered features
-- Hides original ZHA entities to prevent duplicates
-- Registers calibration service
+    This integration follows a multi-device architecture:
+    - Device-specific modules (calibration.py for J1, d1_config.py for D1)
+    - Shared utilities (helpers.py for common operations)
+    - Centralized constants (const.py for all device types)
 
-Supported Devices:
-- Ubisys J1 Window Covering Controller
+How It Works:
+    1. Listens for ZHA device discovery via ZHA_DEVICE_ADDED signal
+    2. Auto-triggers config flow for supported devices
+    3. Creates wrapper entities (covers for J1, lights for D1)
+    4. Hides original ZHA entities to prevent duplicates
+    5. Registers device-specific services:
+       - J1: calibrate_cover (calibration workflow)
+       - D1: configure_d1_phase_mode, configure_d1_ballast
+
+Why Wrapper Entities:
+    We create wrapper entities that delegate to ZHA because:
+    - ZHA provides excellent Zigbee communication
+    - We add Ubisys-specific features and metadata
+    - J1 needs feature filtering based on shade type
+    - D1 needs device identification for configuration services
+
+See Also:
+    - calibration.py: J1-specific calibration logic
+    - d1_config.py: D1-specific configuration services
+    - helpers.py: Shared utilities for both device types
+    - const.py: Device categorization and constants
 """
 
 from __future__ import annotations
@@ -28,29 +49,91 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .calibration import async_calibrate_j1
-from .const import DOMAIN, MANUFACTURER, SERVICE_CALIBRATE, SUPPORTED_MODELS
+from .d1_config import (
+    async_configure_ballast,
+    async_configure_inputs,
+    async_configure_phase_mode,
+)
+from .const import (
+    DOMAIN,
+    MANUFACTURER,
+    SERVICE_CALIBRATE,
+    SERVICE_CONFIGURE_D1_BALLAST,
+    SERVICE_CONFIGURE_D1_INPUTS,
+    SERVICE_CONFIGURE_D1_PHASE_MODE,
+    SUPPORTED_MODELS,
+    get_device_type,
+)
 
 if TYPE_CHECKING:
     from homeassistant.helpers.typing import ConfigType
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.COVER, Platform.BUTTON]
+# Platforms to set up for this integration
+# Cover: J1 window covering controllers
+# Light: D1 universal dimmers
+# Button: Calibration button for J1 devices
+PLATFORMS: list[Platform] = [Platform.COVER, Platform.LIGHT, Platform.BUTTON]
 
 # ZHA signals
 ZHA_DEVICE_ADDED = "zha_device_added"
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the Ubisys integration."""
+    """Set up the Ubisys integration.
+
+    This function is called once when the integration is loaded. It:
+    1. Registers all device-specific services
+    2. Sets up device discovery listener
+
+    Service Registration:
+        - J1 services: calibrate_cover (window covering calibration)
+        - D1 services: configure_d1_phase_mode, configure_d1_ballast, configure_d1_inputs
+
+    Why Register Services Here:
+        Services are registered at integration level (not per-device) because:
+        - Multiple devices of the same type share the same services
+        - Services are stateless and operate on entity_id parameter
+        - Simpler to register once vs per-device registration
+
+    Discovery Setup:
+        We wait until EVENT_HOMEASSISTANT_STARTED before setting up discovery
+        to ensure ZHA integration is fully loaded and ready.
+    """
     hass.data.setdefault(DOMAIN, {})
 
-    # Register calibration service
+    # Register J1 calibration service
+    _LOGGER.debug("Registering J1 calibration service: %s", SERVICE_CALIBRATE)
     hass.services.async_register(
         DOMAIN,
         SERVICE_CALIBRATE,
         async_calibrate_j1,
     )
+
+    # Register D1 configuration services
+    _LOGGER.debug("Registering D1 phase mode service: %s", SERVICE_CONFIGURE_D1_PHASE_MODE)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CONFIGURE_D1_PHASE_MODE,
+        async_configure_phase_mode,
+    )
+
+    _LOGGER.debug("Registering D1 ballast service: %s", SERVICE_CONFIGURE_D1_BALLAST)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CONFIGURE_D1_BALLAST,
+        async_configure_ballast,
+    )
+
+    _LOGGER.debug("Registering D1 inputs service: %s", SERVICE_CONFIGURE_D1_INPUTS)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CONFIGURE_D1_INPUTS,
+        async_configure_inputs,
+    )
+
+    _LOGGER.info("Registered %d Ubisys services", 4)
 
     # Set up discovery listener after Home Assistant starts
     @callback
@@ -108,32 +191,68 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _hide_zha_entity(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Hide the original ZHA cover entity to prevent duplicate entities.
+    """Hide the original ZHA entity to prevent duplicate entities.
 
     This sets the entity's disabled_by and hidden_by flags so it won't
     appear in the UI while we use our wrapper entity instead.
+
+    Domain Detection:
+        The domain to hide is determined by device type:
+        - J1 (window covering): Hide ZHA cover entity
+        - D1 (dimmer): Hide ZHA light entity
+        - Future devices: Hide appropriate entity domain
+
+    Why Hide Instead of Delete:
+        We hide rather than delete the ZHA entity because:
+        - User might want to uninstall our integration and revert to ZHA
+        - Preserves ZHA's excellent Zigbee communication
+        - Easy to unhide on integration removal
     """
     entity_registry = er.async_get(hass)
     device_ieee = entry.data.get("device_ieee")
+    model = entry.data.get("model", "")
 
     if not device_ieee:
         _LOGGER.warning("No device IEEE in config entry, cannot hide ZHA entity")
         return
 
-    # Find the ZHA cover entity for this device
+    # Determine which domain to hide based on device type
+    device_type = get_device_type(model)
+
+    if device_type == "window_covering":
+        domain_to_hide = "cover"
+    elif device_type == "dimmer":
+        domain_to_hide = "light"
+    else:
+        _LOGGER.warning(
+            "Unknown device type '%s' for model '%s', cannot determine domain to hide",
+            device_type,
+            model,
+        )
+        return
+
+    _LOGGER.debug(
+        "Hiding ZHA %s entity for device type %s (model %s)",
+        domain_to_hide,
+        device_type,
+        model,
+    )
+
+    # Find the ZHA entity for this device
     zha_entities = er.async_entries_for_config_entry(
         entity_registry, entry.data.get("zha_config_entry_id", "")
     )
 
     for entity_entry in zha_entities:
-        # Look for cover platform entities matching our device
+        # Look for matching platform and domain
         if (
             entity_entry.platform == "zha"
-            and entity_entry.domain == "cover"
+            and entity_entry.domain == domain_to_hide
             and entity_entry.device_id == entry.data.get("device_id")
         ):
             _LOGGER.debug(
-                "Hiding ZHA cover entity: %s (%s)",
+                "Hiding ZHA %s entity: %s (%s)",
+                domain_to_hide,
                 entity_entry.entity_id,
                 entity_entry.unique_id,
             )
@@ -146,32 +265,60 @@ async def _hide_zha_entity(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def _unhide_zha_entity(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Unhide the original ZHA cover entity when unloading integration.
+    """Unhide the original ZHA entity when unloading integration.
 
-    This restores the original ZHA entity when the integration is removed.
+    This restores the original ZHA entity when the integration is removed,
+    allowing the user to revert back to using ZHA directly.
+
+    Domain Detection:
+        Same logic as _hide_zha_entity - determines domain based on device type.
     """
     entity_registry = er.async_get(hass)
     device_ieee = entry.data.get("device_ieee")
+    model = entry.data.get("model", "")
 
     if not device_ieee:
         _LOGGER.warning("No device IEEE in config entry, cannot unhide ZHA entity")
         return
 
-    # Find the ZHA cover entity for this device
+    # Determine which domain to unhide based on device type
+    device_type = get_device_type(model)
+
+    if device_type == "window_covering":
+        domain_to_unhide = "cover"
+    elif device_type == "dimmer":
+        domain_to_unhide = "light"
+    else:
+        _LOGGER.warning(
+            "Unknown device type '%s' for model '%s', cannot determine domain to unhide",
+            device_type,
+            model,
+        )
+        return
+
+    _LOGGER.debug(
+        "Unhiding ZHA %s entity for device type %s (model %s)",
+        domain_to_unhide,
+        device_type,
+        model,
+    )
+
+    # Find the ZHA entity for this device
     zha_entities = er.async_entries_for_config_entry(
         entity_registry, entry.data.get("zha_config_entry_id", "")
     )
 
     for entity_entry in zha_entities:
-        # Look for cover platform entities matching our device
+        # Look for matching platform and domain
         if (
             entity_entry.platform == "zha"
-            and entity_entry.domain == "cover"
+            and entity_entry.domain == domain_to_unhide
             and entity_entry.device_id == entry.data.get("device_id")
             and entity_entry.disabled_by == er.RegistryEntryDisabler.INTEGRATION
         ):
             _LOGGER.debug(
-                "Unhiding ZHA cover entity: %s (%s)",
+                "Unhiding ZHA %s entity: %s (%s)",
+                domain_to_unhide,
                 entity_entry.entity_id,
                 entity_entry.unique_id,
             )
