@@ -58,6 +58,9 @@ This integration **filters controls** based on your actual shade type:
 - 📦 **HACS Compatible** - Simple installation and automatic updates
 - 🔄 **State Synchronization** - Real-time updates from the underlying ZHA entity
 - 🎛️ **Single Entity UX** - See one cover entity per device (ZHA entity auto-hidden)
+ - 🪪 **Logbook & Diagnostics** - Friendly logbook entries; diagnostics expose redacted device + endpoint/cluster info
+ - 🛠️ **Repairs** - Actionable issues when clusters/quirks are missing
+ - 🔇 **Quiet by Default** - Options to enable verbose INFO logs and per-event input logging
 
 ## 🎛️ Supported Devices
 
@@ -93,21 +96,13 @@ This integration **filters controls** based on your actual shade type:
 
 ## ⚠️ Known Limitations & Open Items
 
-### 🐛 Critical Issues
-
-- **`const.py` Service Name Bug** - Forward reference in backward compatibility alias may cause `NameError` (line 166)
-- **No Test Suite** - No automated testing infrastructure yet; changes may introduce regressions
-
 ### 🚧 Device Support Gaps
 
-- **S1/S1-R Power Switch** - Listed as "Supported" but actually **PLANNED** (not yet implemented)
-  - No ZHA quirk created
-  - No switch platform support
-  - Input configuration UI mentioned in docs but incomplete
+- **S1/S1-R Power Switch** - Wrapper platform exists; advanced features and quirks are still evolving
 - **S2/S2-R Dual Power Switch** - Planned but not implemented
   - Not included in `SWITCH_MODELS` constant
   - No platform or quirk support
-- **D1 Input Configuration Service** - Service `ubisys.configure_d1_inputs` registered but raises "Not yet implemented"
+  
   - Reason: Requires real D1 hardware testing to understand DeviceSetup cluster format
   - Workaround: Default input configuration works for most users
   - Status: Phase 3 feature blocked pending hardware testing
@@ -615,15 +610,43 @@ homeassistant-ubisys/
 └── README.md                    # This file
 ```
 
-### Testing
+### Testing & Local CI
 
-1. Clone the repository
-2. Create a symbolic link to your HA config:
-   ```bash
-   ln -s /path/to/repo/custom_components/ubisys ~/.homeassistant/custom_components/ubisys
-   ```
-3. Restart Home Assistant
-4. Check logs for errors
+Use our local CI runner (creates .venv, installs deps, runs lint/type/tests):
+
+```bash
+# Full local CI
+make ci
+
+# Auto-fix formatting
+make fmt
+
+# After bootstrapping
+make lint
+make typecheck
+make test
+```
+
+GitHub Actions runs hassfest/HACS + lint/type/tests (HA 2024.1.*).
+
+Device trigger examples: see docs/device_triggers_examples.md.
+
+### Logging Controls
+
+Options → Configure includes:
+- Verbose info logging (lifecycle/setup at INFO)
+- Verbose input event logging (each event at INFO)
+
+See docs/logging.md for patterns (kv/info_banner) and HA logger config.
+
+### Diagnostics & Logbook
+
+- Diagnostics: redacted config, device info, ZHA endpoints/clusters, last calibration results
+- Logbook: user-friendly entries for input events and calibration completion
+
+### Options “About” Page
+
+Options now starts with a menu: “About” (links to docs/issues) or “Configure”.
 
 ### Contributing
 

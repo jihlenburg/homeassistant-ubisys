@@ -36,7 +36,8 @@ This is a Home Assistant custom integration for Ubisys Zigbee devices supporting
 - D1: Phase control mode, ballast configuration via services
 - S1/S1-R: UI-based input configuration with automatic rollback
 - Physical input monitoring and device triggers for automations
-- Comprehensive logging with phase-based structure
+- Diagnostics (redacted), Logbook entries, Repairs issues when clusters missing
+- Quiet-by-default logging with structured `kv(...)` and user toggles (verbose info/input)
 
 **Architecture Principles (v2.1.0+):**
 - **DRY (Don't Repeat Yourself)**: Shared components extracted to common modules
@@ -99,6 +100,8 @@ This allows the rest of the integration to access these attributes without speci
 
 The J1 calibration module (`j1_calibration.py`) implements a **5-phase automated calibration** using **motor stall detection**:
 
+UI presents “Steps”; developer logs/docs continue to reference “Phases”.
+
 **Phase 1: Preparation**
 - Enter calibration mode (mode=0x02)
 - Write configured_mode based on shade type
@@ -132,7 +135,7 @@ The J1 calibration module (`j1_calibration.py`) implements a **5-phase automated
    - Clear error messages (know which phase failed)
    - Easier maintenance and modification
 
-3. **Direct Cluster Commands**: Uses cluster.command() for up_open/down_close (not HA services) because we need low-level control and timeout handling.
+3. **Direct Cluster Commands**: Uses `async_zcl_command()` helper (timeouts + retries) for up_open/down_close/stop.
 
 4. **Concurrency Control**: asyncio.Lock per device prevents race conditions from simultaneous calibrations.
 
@@ -209,6 +212,43 @@ User automations triggered
 3. **Command Correlation**: InputActions parsing allows us to determine which physical input and press type triggered a command, enabling precise automation triggers (e.g., "input 1 long press" vs "input 2 short press").
 
 4. **Shared Architecture**: All three device types (J1, D1, S1) use the same InputActions format and monitoring infrastructure, maximizing code reuse.
+
+### Logging Policy (v2.1+)
+
+- Quiet by default; promote to INFO via options toggles:
+  - `verbose_info_logging` for lifecycle/setup/status
+  - `verbose_input_logging` for per-input events
+- `kv(logger, level, msg, **kvs)`: structured, sorted key=value context; skips formatting if level disabled.
+- `info_banner(logger, title, **kvs)`: 3-line banners for major milestones (gated by verbose toggle).
+- See docs/logging.md for user guidance.
+
+### Diagnostics, Logbook, Repairs
+
+- Diagnostics: redacted config/options, device info, endpoint/cluster snapshot, last calibration results.
+- Logbook: entries for `ubisys_input_event` and calibration completion.
+- Repairs: issues raised when expected clusters are missing.
+
+### Options Flow “About”
+
+- Options starts with a menu: `about` (docs/issues links) or `configure` (device-specific options + logging toggles).
+
+## CI & Tests
+
+- GitHub Actions: hassfest, HACS, black/isort/flake8/mypy, pytest with HA 2024.1.*.
+- Local CI: `scripts/run_ci_local.sh` and Makefile (`ci`, `fmt`, `lint`, `typecheck`, `test`).
+- Tests use `pytest-homeassistant-custom-component`; ZHA/zigpy mocked.
+
+### Current Tests
+
+- InputActions parsing (valid/invalid)
+- Attribute write+verify (timeouts/retry, mismatch)
+- Options Flow About/menu
+
+### Future Tests
+
+- Input monitor (zha_event → ubisys_input_event correlation)
+- Diagnostics payload content and redaction
+- Calibration flow happy-path and failure-path (mocked clusters)
 
 ### Device Trigger Architecture (v2.0+ Phase 3)
 
