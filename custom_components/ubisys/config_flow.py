@@ -41,6 +41,7 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
@@ -50,6 +51,8 @@ from .const import (
     CONF_INPUT_CONFIG_PRESET,
     CONF_SHADE_TYPE,
     CONF_ZHA_CONFIG_ENTRY_ID,
+    OPTION_VERBOSE_INFO_LOGGING,
+    OPTION_VERBOSE_INPUT_LOGGING,
     DOMAIN,
     SHADE_TYPES,
     get_device_type,
@@ -60,6 +63,12 @@ from .input_config import (
     InputConfigPresets,
     async_apply_input_config,
 )
+from .d1_config import (
+    async_configure_phase_mode,
+    async_configure_ballast,
+)
+from .const import PHASE_MODES, BALLAST_LEVEL_MIN, BALLAST_LEVEL_MAX, SERVICE_TUNE_J1_ADVANCED, DOMAIN
+from .logtools import info_banner
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -195,13 +204,14 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
 
         elif device_type == "dimmer":
-            # D1 devices don't need additional configuration
-            # Directly create entry without showing form
+            # D1 devices: Create entry, then Options Flow provides advanced config
             zha_config_entry_id = await self._get_zha_config_entry_id()
             if not zha_config_entry_id:
                 return self.async_abort(reason="zha_not_found")
 
-            _LOGGER.info(
+            from .helpers import is_verbose_info_logging
+            _LOGGER.log(
+                logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
                 "Creating config entry for D1 dimmer: %s",
                 self._discovery_data["name"],
             )
@@ -218,6 +228,30 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 },
             )
 
+        elif device_type == "switch":
+            # S1/S1-R devices: Create entry and proceed to input configuration via options
+            zha_config_entry_id = await self._get_zha_config_entry_id()
+            if not zha_config_entry_id:
+                return self.async_abort(reason="zha_not_found")
+
+            from .helpers import is_verbose_info_logging
+            _LOGGER.log(
+                logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
+                "Creating config entry for S1/S1-R switch: %s",
+                self._discovery_data["name"],
+            )
+
+            return self.async_create_entry(
+                title=f"{self._discovery_data['name']} ({model})",
+                data={
+                    CONF_DEVICE_IEEE: self._discovery_data["device_ieee"],
+                    CONF_DEVICE_ID: self._discovery_data["device_id"],
+                    CONF_ZHA_CONFIG_ENTRY_ID: zha_config_entry_id,
+                    "manufacturer": self._discovery_data["manufacturer"],
+                    "model": self._discovery_data["model"],
+                    "name": self._discovery_data["name"],
+                },
+            )
         else:
             # Unknown device type
             _LOGGER.error(
@@ -369,18 +403,44 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Manage device-specific options.
+        """Top-level options menu: About or Configure."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["about", "configure"],
+        )
 
-        Routes to appropriate options based on device type:
-        - Window covering: Show shade type configuration
-        - Dimmer: Show message that configuration is done via services
-        - Other: No options available
-        """
+    async def async_step_about(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """About page with links to docs and issues."""
+        if user_input is not None:
+            # Exit about
+            return self.async_create_entry(title="", data={})
+
+        docs_url = "https://github.com/jihlenburg/homeassistant-ubisys#readme"
+        issues_url = "https://github.com/jihlenburg/homeassistant-ubisys/issues"
+
+        data_schema = vol.Schema({})
+        return self.async_show_form(
+            step_id="about",
+            data_schema=data_schema,
+            description_placeholders={
+                "device_name": self.config_entry.data.get("name", "Ubisys Device"),
+                "model": self.config_entry.data.get("model", ""),
+                "docs_url": docs_url,
+                "issues_url": issues_url,
+            },
+        )
+
+    async def async_step_configure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Route to device-specific configuration steps."""
         model = self.config_entry.data.get("model", "")
         device_type = get_device_type(model)
 
         _LOGGER.debug(
-            "Options flow init: model=%s, device_type=%s",
+            "Options flow configure: model=%s, device_type=%s",
             model,
             device_type,
         )
@@ -397,12 +457,31 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                     data={**self.config_entry.data, CONF_SHADE_TYPE: new_shade_type},
                 )
 
-                # Reload the entry to apply changes
-                await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+                # Update logging options from form
+                new_options = {
+                    **self.config_entry.options,
+                    OPTION_VERBOSE_INFO_LOGGING: bool(
+                        user_input.get(
+                            OPTION_VERBOSE_INFO_LOGGING,
+                            self.config_entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False),
+                        )
+                    ),
+                    OPTION_VERBOSE_INPUT_LOGGING: bool(
+                        user_input.get(
+                            OPTION_VERBOSE_INPUT_LOGGING,
+                            self.config_entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False),
+                        )
+                    ),
+                }
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry,
+                    options=new_options,
+                )
 
-                return self.async_create_entry(title="", data={})
+                # Proceed to advanced J1 tuning
+                return await self.async_step_j1_advanced()
 
-            # Show current shade type
+            # Show current shade type and logging options
             current_shade_type = self.config_entry.data.get(CONF_SHADE_TYPE, "roller")
 
             data_schema = vol.Schema(
@@ -410,23 +489,30 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                     vol.Required(CONF_SHADE_TYPE, default=current_shade_type): vol.In(
                         SHADE_TYPES
                     ),
+                    vol.Optional(
+                        OPTION_VERBOSE_INFO_LOGGING,
+                        default=self.config_entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False),
+                    ): bool,
+                    vol.Optional(
+                        OPTION_VERBOSE_INPUT_LOGGING,
+                        default=self.config_entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False),
+                    ): bool,
                 }
             )
 
             return self.async_show_form(
-                step_id="init",
+                step_id="configure",
                 data_schema=data_schema,
                 description_placeholders={
                     "device_name": self.config_entry.data.get("name", "Ubisys Device"),
                 },
             )
 
-        elif device_type == "dimmer" or device_type == "switch":
-            # D1 dimmers and S1 switches: Show input configuration
+        elif device_type == "dimmer":
+            return await self.async_step_d1_options()
+        elif device_type == "switch":
             return await self.async_step_input_config(user_input)
-
         else:
-            # Unknown or unsupported device type
             return self.async_abort(reason="no_options")
 
     async def async_step_input_config(
@@ -470,7 +556,9 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                 # Convert string value to enum
                 preset = InputConfigPreset(preset_value)
 
-                _LOGGER.info(
+                from .helpers import is_verbose_info_logging
+                _LOGGER.log(
+                    logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
                     "Applying input preset '%s' to %s (%s)",
                     preset.value,
                     device_name,
@@ -504,11 +592,30 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                     },
                 )
 
-                _LOGGER.info(
+                _LOGGER.log(
+                    logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
                     "✓ Successfully applied input preset '%s' to %s",
                     preset.value,
                     device_name,
                 )
+
+                # Update logging options from form (if present)
+                new_options = {
+                    **self.config_entry.options,
+                    OPTION_VERBOSE_INFO_LOGGING: bool(
+                        user_input.get(
+                            OPTION_VERBOSE_INFO_LOGGING,
+                            self.config_entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False),
+                        )
+                    ),
+                    OPTION_VERBOSE_INPUT_LOGGING: bool(
+                        user_input.get(
+                            OPTION_VERBOSE_INPUT_LOGGING,
+                            self.config_entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False),
+                        )
+                    ),
+                }
+                self.hass.config_entries.async_update_entry(self.config_entry, options=new_options)
 
                 return self.async_create_entry(title="", data={})
 
@@ -550,6 +657,8 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                 vol.Required(
                     CONF_INPUT_CONFIG_PRESET, default=default_preset
                 ): vol.In(preset_choices),
+                vol.Optional(OPTION_VERBOSE_INFO_LOGGING, default=self.config_entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False)): bool,
+                vol.Optional(OPTION_VERBOSE_INPUT_LOGGING, default=self.config_entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False)): bool,
             }
         )
 
@@ -562,3 +671,136 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                 "model": model,
             },
         )
+
+    async def async_step_d1_options(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Advanced D1 options: phase mode and ballast min/max.
+
+        After applying, continues to the input configuration step.
+        """
+        errors: dict[str, str] = {}
+
+        model = self.config_entry.data.get("model", "")
+        device_ieee = self.config_entry.data.get(CONF_DEVICE_IEEE)
+        entity_name = self.config_entry.data.get("name", "Device")
+
+        if model not in ("D1", "D1-R"):
+            return self.async_abort(reason="no_options")
+
+        if user_input is not None:
+            # Apply phase mode if provided
+            phase_mode = user_input.get("phase_mode")
+            try:
+                applied: dict[str, str | int] = {}
+                light_entity = self._find_entity_id(self.config_entry.entry_id, domain="light")
+                if phase_mode:
+                    await async_configure_phase_mode(
+                        self.hass,
+                        entity_id=light_entity,
+                        phase_mode=phase_mode,
+                    )
+                    applied["phase_mode"] = phase_mode
+                # Apply ballast if provided
+                min_level = user_input.get("min_level")
+                max_level = user_input.get("max_level")
+                if min_level is not None or max_level is not None:
+                    await async_configure_ballast(
+                        self.hass,
+                        entity_id=light_entity,
+                        min_level=min_level,
+                        max_level=max_level,
+                    )
+                    if min_level is not None:
+                        applied["min_level"] = min_level
+                    if max_level is not None:
+                        applied["max_level"] = max_level
+                if applied:
+                    info_banner(_LOGGER, "D1 Options Applied", **applied)
+                # Update logging options from form
+                new_options = {
+                    **self.config_entry.options,
+                    OPTION_VERBOSE_INFO_LOGGING: bool(
+                        user_input.get(
+                            OPTION_VERBOSE_INFO_LOGGING,
+                            self.config_entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False),
+                        )
+                    ),
+                    OPTION_VERBOSE_INPUT_LOGGING: bool(
+                        user_input.get(
+                            OPTION_VERBOSE_INPUT_LOGGING,
+                            self.config_entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False),
+                        )
+                    ),
+                }
+                self.hass.config_entries.async_update_entry(self.config_entry, options=new_options)
+                # Proceed to input config step
+                return await self.async_step_input_config(None)
+            except Exception as err:
+                _LOGGER.error("Failed to apply D1 options: %s", err, exc_info=True)
+                errors["base"] = "config_write_failed"
+
+        # Build schema (include logging toggles)
+        data_schema = vol.Schema(
+            {
+                vol.Optional("phase_mode", default="automatic"): vol.In(list(PHASE_MODES.keys())),
+                vol.Optional("min_level"): vol.All(vol.Coerce(int), vol.Range(min=BALLAST_LEVEL_MIN, max=BALLAST_LEVEL_MAX)),
+                vol.Optional("max_level"): vol.All(vol.Coerce(int), vol.Range(min=BALLAST_LEVEL_MIN, max=BALLAST_LEVEL_MAX)),
+                vol.Optional(OPTION_VERBOSE_INFO_LOGGING, default=self.config_entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False)): bool,
+                vol.Optional(OPTION_VERBOSE_INPUT_LOGGING, default=self.config_entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False)): bool,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="d1_options",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={
+                "device_name": entity_name,
+                "model": model,
+            },
+        )
+
+    def _find_entity_id(self, config_entry_id: str, domain: str) -> str:
+        """Find entity_id for a given config entry and domain (helper)."""
+        entity_registry = er.async_get(self.hass)
+        entries = er.async_entries_for_config_entry(entity_registry, config_entry_id)
+        for entry in entries:
+            if entry.domain == domain:
+                return entry.entity_id
+        raise HomeAssistantError(f"No {domain} entity found for options flow")
+
+    async def async_step_j1_advanced(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Advanced tuning for J1 via options flow (wraps service)."""
+        errors: dict[str, str] = {}
+
+        model = self.config_entry.data.get("model", "")
+        if get_device_type(model) != "window_covering":
+            return self.async_abort(reason="no_options")
+
+        entity_id = self._find_entity_id(self.config_entry.entry_id, domain="cover")
+
+        if user_input is not None:
+            data: dict[str, Any] = {"entity_id": entity_id}
+            for key in ("turnaround_guard_time", "inactive_power_threshold", "startup_steps", "additional_steps"):
+                if user_input.get(key) is not None:
+                    data[key] = user_input[key]
+            try:
+                await self.hass.services.async_call(DOMAIN, SERVICE_TUNE_J1_ADVANCED, data, blocking=True)
+                # Finished options
+                return self.async_create_entry(title="", data={})
+            except Exception as err:
+                _LOGGER.error("Failed to tune J1: %s", err, exc_info=True)
+                errors["base"] = "config_write_failed"
+
+        data_schema = vol.Schema(
+            {
+                vol.Optional("turnaround_guard_time"): vol.All(vol.Coerce(int), vol.Range(min=0, max=65535)),
+                vol.Optional("inactive_power_threshold"): vol.All(vol.Coerce(int), vol.Range(min=0, max=65535)),
+                vol.Optional("startup_steps"): vol.All(vol.Coerce(int), vol.Range(min=0, max=65535)),
+                vol.Optional("additional_steps"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+            }
+        )
+        return self.async_show_form(step_id="j1_advanced", data_schema=data_schema, errors=errors)

@@ -39,6 +39,13 @@ calibrate_j1:
         entity:
           domain: cover
           integration: ubisys
+    test_mode:
+      name: Test Mode (no writes)
+      description: Perform a health check without entering calibration or writing attributes.
+      required: false
+      default: false
+      selector:
+        boolean:
 
 # =============================================================================
 # D1 DIMMER CONFIGURATION SERVICES
@@ -173,45 +180,70 @@ configure_d1_ballast:
           max: 254
           mode: box
 
-configure_d1_inputs:
-  name: Configure D1 Inputs
+
+# =============================================================================
+# J1 ADVANCED TUNING
+# =============================================================================
+
+tune_j1_advanced:
+  name: Advanced J1 Tuning
   description: >
-    Configure physical switch inputs for Ubisys D1 dimmer.
+    Advanced tuning for Ubisys J1 manufacturer-specific parameters.
 
 
-    **⚠️ ADVANCED FEATURE:** This service is not yet implemented.
+    Use with caution. Writes persistent attributes on the WindowCovering cluster (0x0102) with manufacturer code 0x10F2.
 
 
-    **What this will do (when implemented):**
+    Parameters:
 
-    Configure how physical wall switches connected to the D1 interact with the dimmer:
+    - turnaround_guard_time (0x1000): Delay between direction reversals, in 50ms units (e.g., 10 = 500ms)
 
-    - **Momentary:** Push button switches (press and release)
+    - inactive_power_threshold (0x1006): Motor inactive threshold in milliwatts (e.g., 4096 ≈ 4.1W)
 
-    - **Toggle:** Traditional on/off switches
+    - startup_steps (0x1007): Steps to run on startup (AC waves)
 
-    - **Decoupled:** Physical switch controls Zigbee bindings, not local output
-
-
-    **Most users don't need this:** The default input configuration works for standard switches.
-
-
-    **Implementation status:** Phase 3 (requires testing with real D1 device)
+    - additional_steps (0x1005): Overtravel percentage (0-100)
   fields:
     entity_id:
-      name: Light Entity
-      description: The Ubisys D1 light entity you want to configure.
+      name: Cover Entity
+      description: The Ubisys J1 cover entity to tune.
       required: true
       selector:
         entity:
-          domain: light
+          domain: cover
           integration: ubisys
-    input_config:
-      name: Input Configuration
-      description: Input configuration string (Ubisys format).
-      required: true
+    turnaround_guard_time:
+      name: Turnaround Guard Time (50ms units)
+      required: false
       selector:
-        text:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    inactive_power_threshold:
+      name: Inactive Power Threshold (mW)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    startup_steps:
+      name: Startup Steps (AC waves)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    additional_steps:
+      name: Additional Steps (%)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: slider
     input_actions:
       name: Input Actions (optional)
       description: Input actions string (Ubisys format). Leave empty to keep current setting.

@@ -854,7 +854,12 @@ async def async_apply_input_config(
         >>> micro_code = b"".join(a.to_bytes() for a in actions)
         >>> await async_apply_input_config(hass, ieee, micro_code)
     """
-    _LOGGER.info("Applying InputActions configuration to %s", device_ieee)
+    from .helpers import is_verbose_info_logging
+    _LOGGER.log(
+        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+        "Applying InputActions configuration to %s",
+        device_ieee,
+    )
 
     cluster = await get_device_setup_cluster(hass, device_ieee)
     if not cluster:
@@ -915,7 +920,10 @@ async def async_apply_input_config(
                 "Configuration verification failed - rolled back to previous config"
             )
 
-        _LOGGER.info("✓ InputActions configuration applied successfully")
+        _LOGGER.log(
+            logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+            "✓ InputActions configuration applied successfully",
+        )
 
     except Exception as err:
         _LOGGER.error(

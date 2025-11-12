@@ -312,7 +312,7 @@ tests/
 ├── __init__.py
 ├── test_config_flow.py
 ├── test_cover.py
-├── test_calibration.py
+├── test_j1_calibration.py
 └── fixtures/
     └── zha_device.py
 ```

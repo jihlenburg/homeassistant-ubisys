@@ -64,7 +64,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_DEVICE_IEEE, DOMAIN
+from .const import CONF_DEVICE_IEEE, DOMAIN, SERVICE_CALIBRATE
+from .helpers import is_verbose_info_logging
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,15 +78,24 @@ async def async_setup_entry(
     """Set up Ubisys button from config entry."""
     device_ieee = config_entry.data[CONF_DEVICE_IEEE]
 
-    _LOGGER.info("Creating Ubisys calibration button for device: %s", device_ieee)
+    _LOGGER.log(
+        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+        "Creating Ubisys calibration button for device: %s",
+        device_ieee,
+    )
 
     button = UbisysCalibrationButton(
         hass=hass,
         config_entry=config_entry,
         device_ieee=device_ieee,
     )
+    health = UbisysHealthCheckButton(
+        hass=hass,
+        config_entry=config_entry,
+        device_ieee=device_ieee,
+    )
 
-    async_add_entities([button])
+    async_add_entities([button, health])
 
 
 class UbisysCalibrationButton(ButtonEntity):
@@ -114,71 +124,81 @@ class UbisysCalibrationButton(ButtonEntity):
             "identifiers": {(DOMAIN, device_ieee)},
         }
 
-        _LOGGER.debug(
-            "Initialized UbisysCalibrationButton: ieee=%s",
-            device_ieee,
-        )
+        _LOGGER.debug("Initialized UbisysCalibrationButton: ieee=%s", device_ieee)
 
     async def async_press(self) -> None:
-        """Handle the button press - trigger calibration.
+        """Handle the calibration button press.
 
-        Button → Service Delegation Pattern:
-
-        This method demonstrates the delegation pattern:
-        1. Find the cover entity for this device
-        2. Call the calibration service with that entity
-        3. Let the service handle all the complex logic
-
-        Why Look Up Cover Entity:
-           The calibration service expects a cover entity_id as input.
-           We need to find which cover entity belongs to this device.
-
-        Entity Lookup Strategy:
-           - All entities for a device share the same config_entry_id
-           - We query the entity registry for all entities in this config entry
-           - We filter for domain="cover" to find the J1 cover entity
-           - This is guaranteed to exist (cover platform runs before button platform)
-
-        Error Handling:
-           If cover entity isn't found (shouldn't happen), we log error and return.
-           The service call is non-blocking (blocking=False) so button press
-           returns immediately while calibration runs in background.
+        Delegates to the ubisys.calibrate_j1 service for the device's cover entity.
         """
-        _LOGGER.info("Calibration button pressed for device: %s", self._device_ieee)
+        from homeassistant.helpers import entity_registry as er
 
-        # Find the cover entity ID for this device
-        # We need this because the service expects entity_id, not device_id
+        _LOGGER.log(
+            logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
+            "Calibration button pressed for device: %s",
+            self._device_ieee,
+        )
+
+        entity_registry = er.async_get(self.hass)
+        entries = er.async_entries_for_config_entry(
+            entity_registry, self._config_entry.entry_id
+        )
+        cover_entity_id = next((e.entity_id for e in entries if e.domain == "cover"), None)
+        if not cover_entity_id:
+            _LOGGER.error(
+                "Could not find cover entity for device: %s", self._device_ieee
+            )
+            return
+
+        try:
+            await self.hass.services.async_call(
+                DOMAIN,
+                SERVICE_CALIBRATE,
+                {"entity_id": cover_entity_id},
+                blocking=False,
+            )
+            _LOGGER.log(
+                logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
+                "Calibration service called for: %s",
+                cover_entity_id,
+            )
+        except Exception as err:
+            _LOGGER.error("Failed to call calibration service: %s", err)
+
+
+class UbisysHealthCheckButton(ButtonEntity):
+    """Button entity to run a read-only J1 health check (test_mode)."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Health Check"
+    _attr_icon = "mdi:heart-pulse"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        device_ieee: str,
+    ) -> None:
+        self.hass = hass
+        self._config_entry = config_entry
+        self._device_ieee = device_ieee
+        self._attr_unique_id = f"{device_ieee}_health_check"
+        self._attr_device_info = {"identifiers": {(DOMAIN, device_ieee)}}
+
+    async def async_press(self) -> None:
+        """Run a read-only health check (test_mode)."""
         from homeassistant.helpers import entity_registry as er
 
         entity_registry = er.async_get(self.hass)
         entries = er.async_entries_for_config_entry(
             entity_registry, self._config_entry.entry_id
         )
-
-        # Search for the cover entity in this device's config entry
-        cover_entity_id = None
-        for entry in entries:
-            if entry.domain == "cover":
-                cover_entity_id = entry.entity_id
-                break
-
+        cover_entity_id = next((e.entity_id for e in entries if e.domain == "cover"), None)
         if not cover_entity_id:
-            # This shouldn't happen (cover is created before button)
-            _LOGGER.error(
-                "Could not find cover entity for device: %s", self._device_ieee
-            )
             return
-
-        # Call the calibration service
-        # blocking=False means we return immediately while calibration runs
-        # The service handler will send progress notifications to the user
-        try:
-            await self.hass.services.async_call(
-                DOMAIN,
-                "calibrate_j1",
-                {"entity_id": cover_entity_id},
-                blocking=False,
-            )
-            _LOGGER.info("Calibration service called for: %s", cover_entity_id)
-        except Exception as err:
-            _LOGGER.error("Failed to call calibration service: %s", err)
+        await self.hass.services.async_call(
+            DOMAIN,
+            SERVICE_CALIBRATE,
+            {"entity_id": cover_entity_id, "test_mode": True},
+            blocking=False,
+        )

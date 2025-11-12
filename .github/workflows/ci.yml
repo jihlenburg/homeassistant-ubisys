@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+
+jobs:
+  lint-type:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install black isort flake8 mypy
+      - name: Black
+        run: black --check custom_components/ubisys custom_zha_quirks
+      - name: Isort
+        run: isort --check-only .
+      - name: Flake8
+        run: flake8 custom_components/ubisys
+      - name: Mypy
+        run: mypy
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            "homeassistant==2024.1.*" \
+            pytest pytest-asyncio pytest-cov \
+            pytest-homeassistant-custom-component
+      - name: Run tests
+        env:
+          PYTHONPATH: custom_components
+        run: pytest -q --cov=custom_components/ubisys --cov-report=term-missing
+

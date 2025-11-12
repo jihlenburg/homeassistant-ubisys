@@ -33,7 +33,7 @@ This document provides comprehensive architecture diagrams for the Ubisys Home A
 │  │                    ┌──────▼──────────┐                       │ │
 │  │                    │  Calibration    │                       │ │
 │  │                    │  Module         │                       │ │
-│  │                    │  calibration.py │                       │ │
+│  │                    │  j1_calibration.py │                    │ │
 │  │                    └─────────────────┘                       │ │
 │  │                           │                                  │ │
 │  └───────────────────────────┼──────────────────────────────────┘ │
@@ -430,7 +430,7 @@ Usage in Calibration:
 | Attribute ID | Name | Type | Description |
 |--------------|------|------|-------------|
 | 0x0017 | mode | uint8 | 0x00=normal, 0x02=calibration |
-| 0x1000 | configured_mode | uint8 | Window covering type (0x00/0x04/0x08) |
+| 0x0000 | window_covering_type | uint8 | Window covering type (0x00/0x04/0x08) |
 | 0x1001 | lift_to_tilt_transition_steps | uint16 | Steps for full tilt (0 or 100) |
 | 0x1002 | total_steps | uint16 | Total steps from open to closed |
 

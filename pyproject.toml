@@ -1,0 +1,24 @@
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+include = "(custom_components/ubisys|custom_zha_quirks)/.*\.py$"
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+strict_equality = true
+namespace_packages = true
+files = "custom_components/ubisys"
+ignore_missing_imports = true
+

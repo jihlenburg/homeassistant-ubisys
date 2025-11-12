@@ -1,4 +1,4 @@
-# Device Trigger Testing Guide (Phase 3)
+# Device Trigger Testing Guide
 
 This guide describes how to test device automation triggers for Ubisys input events.
 
@@ -18,7 +18,7 @@ Device triggers expose physical button presses as automation triggers in the Hom
 
 No need to understand event structures or write YAML!
 
-## Phase 3 Testing: Device Triggers
+## Device Trigger Verification
 
 ### Test 1: Verify Triggers Appear in UI
 
@@ -34,7 +34,7 @@ No need to understand event structures or write YAML!
 
 **Expected Result:**
 
-**For J1 devices**, you should see 8 triggers:
+For J1 devices, you should see 8 triggers:
 - Button 1 pressed
 - Button 1 released
 - Button 1 short press
@@ -44,15 +44,15 @@ No need to understand event structures or write YAML!
 - Button 2 short press
 - Button 2 long press
 
-**For D1 devices**, same 8 triggers as J1.
+For D1 devices, same 8 triggers as J1.
 
-**For S1 devices**, you should see 4 triggers:
+For S1 devices, you should see 4 triggers:
 - Button 1 pressed
 - Button 1 released
 - Button 1 short press
 - Button 1 long press
 
-**For S1-R devices**, you should see 8 triggers (2 inputs).
+For S1-R devices, you should see 8 triggers (2 inputs).
 
 **Troubleshooting:**
 - If device doesn't appear: Check device is configured in Ubisys integration

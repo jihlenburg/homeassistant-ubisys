@@ -40,7 +40,9 @@ from .helpers import (
     get_entity_device_info,
     validate_ubisys_entity,
 )
+from .logtools import info_banner, kv, Stopwatch
 from .input_parser import InputActionRegistry, InputActionsParser, PressType
+from .helpers import is_verbose_info_logging, is_verbose_input_logging
 
 if TYPE_CHECKING:
     from zigpy.zcl import Cluster
@@ -127,6 +129,14 @@ class UbisysInputMonitor:
             return
 
         try:
+            info_banner(
+                _LOGGER,
+                "Start Input Monitoring",
+                device_ieee=self.device_ieee,
+                model=self.model,
+                endpoints=self._controller_endpoints,
+            )
+            sw = Stopwatch()
             # Read InputActions configuration
             await self._async_read_input_actions()
 
@@ -134,7 +144,14 @@ class UbisysInputMonitor:
             self._subscribe_to_zha_events()
 
             self._started = True
-            _LOGGER.info("Started input monitoring for %s (%s)", self.model, self.device_ieee)
+            kv(
+                _LOGGER,
+                logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
+                "Input monitoring ready",
+                device_ieee=self.device_ieee,
+                model=self.model,
+                elapsed_s=round(sw.elapsed, 1),
+            )
 
         except Exception as err:
             _LOGGER.error(
@@ -155,7 +172,11 @@ class UbisysInputMonitor:
         self._unsubscribe_listeners.clear()
 
         self._started = False
-        _LOGGER.info("Stopped input monitoring for %s", self.device_ieee)
+        _LOGGER.log(
+            logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
+            "Stopped input monitoring for %s",
+            self.device_ieee,
+        )
 
     async def _async_read_input_actions(self) -> None:
         """Read InputActions configuration from the device.
@@ -175,6 +196,25 @@ class UbisysInputMonitor:
                     "DeviceSetup cluster not found for %s - input correlation disabled",
                     self.device_ieee,
                 )
+                # Register a Repairs issue for missing quirk/cluster
+                try:
+                    from homeassistant.helpers import issue_registry as ir
+
+                    ir.async_create_issue(
+                        self.hass,
+                        DOMAIN,
+                        issue_id=f"device_setup_cluster_missing_{self.device_ieee}",
+                        is_fixable=False,
+                        severity=ir.IssueSeverity.WARNING,
+                        learn_more_url="https://github.com/jihlenburg/homeassistant-ubisys",
+                        translation_key=None,
+                        data={
+                            "device_ieee": self.device_ieee,
+                            "model": self.model,
+                        },
+                    )
+                except Exception:
+                    _LOGGER.debug("Unable to create Repairs issue for missing DeviceSetup cluster")
                 return
 
             # Read InputActions attribute (manufacturer-specific, requires mfg code)
@@ -230,11 +270,14 @@ class UbisysInputMonitor:
             actions = InputActionsParser.parse(input_actions_data)
             self._registry.register(actions)
 
-            _LOGGER.info(
-                "Registered %d InputActions for %s (%s)",
-                len(actions),
-                self.model,
-                self.device_ieee,
+            # Gate noisy INFO log unless verbose info logging is enabled
+            kv(
+                _LOGGER,
+                logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
+                "InputActions parsed",
+                count=len(actions),
+                device_ieee=self.device_ieee,
+                model=self.model,
             )
 
             # Log registered actions for debugging
@@ -321,13 +364,15 @@ class UbisysInputMonitor:
                 command_id = event_data.get("command")
                 args = event_data.get("args", [])
 
-                _LOGGER.debug(
-                    "ZHA event from %s ep%d: cluster=0x%04X, cmd=0x%02X, args=%s",
-                    self.model,
-                    endpoint_id,
-                    cluster_id or 0,
-                    command_id or 0,
-                    args,
+                level = logging.INFO if is_verbose_input_logging(self.hass) else logging.DEBUG
+                kv(
+                    _LOGGER,
+                    level,
+                    "Input event",
+                    model=self.model,
+                    endpoint=endpoint_id,
+                    cluster=f"0x{(cluster_id or 0):04X}",
+                    command=f"0x{(command_id or 0):02X}",
                 )
 
                 # Correlate command with InputActions
@@ -456,7 +501,10 @@ class UbisysInputMonitor:
         signal = f"{SIGNAL_INPUT_EVENT}_{self.device_id}"
         async_dispatcher_send(self.hass, signal, event_data)
 
-        _LOGGER.info(
+        # Respect global verbosity for per-event user-facing logs
+        level = logging.INFO if VERBOSE_INPUT_LOGGING else logging.DEBUG
+        _LOGGER.log(
+            level,
             "%s input %d: %s",
             self.model,
             input_number + 1,  # Display as 1-based for user readability
@@ -511,7 +559,11 @@ async def async_setup_input_monitoring(
         hass.data[DOMAIN] = {}
     hass.data[DOMAIN].setdefault("input_monitors", []).extend(monitors)
 
-    _LOGGER.info("Set up input monitoring for %d devices", len(monitors))
+    _LOGGER.log(
+        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+        "Set up input monitoring for %d devices",
+        len(monitors),
+    )
 
 
 async def async_unload_input_monitoring(hass: HomeAssistant) -> None:
@@ -530,4 +582,7 @@ async def async_unload_input_monitoring(hass: HomeAssistant) -> None:
     if DOMAIN in hass.data and "input_monitors" in hass.data[DOMAIN]:
         del hass.data[DOMAIN]["input_monitors"]
 
-    _LOGGER.info("Unloaded input monitoring")
+    _LOGGER.log(
+        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+        "Unloaded input monitoring",
+    )

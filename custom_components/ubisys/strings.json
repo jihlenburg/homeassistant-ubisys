@@ -27,18 +27,41 @@
   },
   "options": {
     "step": {
+      "about": {
+        "title": "About Ubisys {model}",
+        "description": "Configure {device_name}.\n\n• Documentation: {docs_url}\n• Issues: {issues_url}\n\nClose this page to return to options."
+      },
       "init": {
         "title": "Ubisys {model} Options",
-        "description": "Update configuration for {device_name}. Changing these settings will reload the integration and update device behavior.",
+        "description": "Choose what to configure for {device_name}.",
         "data": {
-          "shade_type": "Shade Type"
+          "shade_type": "Shade Type",
+          "verbose_info_logging": "Verbose info logging",
+          "verbose_input_logging": "Verbose input event logging",
+          "turnaround_guard_time": "Guard Time (50ms units)",
+          "inactive_power_threshold": "Inactive Power Threshold (mW)",
+          "startup_steps": "Startup Steps (AC waves)",
+          "additional_steps": "Additional Steps (%)"
+        }
+      },
+      "d1_options": {
+        "title": "D1 Advanced Options",
+        "description": "Configure phase mode and ballast range for {device_name}. Leave values empty to keep current settings.",
+        "data": {
+          "phase_mode": "Phase Mode",
+          "min_level": "Minimum Level (1-254)",
+          "max_level": "Maximum Level (1-254)",
+          "verbose_info_logging": "Verbose info logging",
+          "verbose_input_logging": "Verbose input event logging"
         }
       },
       "input_config": {
         "title": "Configure Physical Inputs",
         "description": "Select how the physical buttons/switches on {device_name} should behave. This configures the device's InputActions and determines what commands are sent when you press buttons.",
         "data": {
-          "input_config_preset": "Input Behavior"
+          "input_config_preset": "Input Behavior",
+          "verbose_info_logging": "Verbose info logging",
+          "verbose_input_logging": "Verbose input event logging"
         }
       }
     },

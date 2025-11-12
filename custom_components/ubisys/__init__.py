@@ -11,14 +11,14 @@ Device Support:
 
 Architecture:
     This integration follows a multi-device architecture:
-    - Device-specific modules (calibration.py for J1, d1_config.py for D1)
+    - Device-specific modules (j1_calibration.py for J1, d1_config.py for D1)
     - Shared configuration (input_config.py for D1/S1 input configuration via UI)
     - Shared utilities (helpers.py for common operations)
     - Centralized constants (const.py for all device types)
 
 How It Works:
-    1. Listens for ZHA device discovery via ZHA_DEVICE_ADDED signal
-    2. Auto-triggers config flow for supported devices
+    1. Scans device registry on startup for Ubisys devices paired with ZHA
+    2. Auto-triggers config flow for discovered supported devices
     3. Creates wrapper entities (covers for J1, lights for D1, switches for S1)
     4. Hides original ZHA entities to prevent duplicates
     5. Registers device-specific services:
@@ -52,9 +52,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.device_registry import (
+    async_track_device_registry_updated_event,
+)
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .j1_calibration import async_calibrate_j1
+from .j1_calibration import async_calibrate_j1, async_tune_j1
 from .d1_config import (
     async_configure_ballast,
     async_configure_inputs,
@@ -72,8 +75,11 @@ from .const import (
     SERVICE_CONFIGURE_D1_INPUTS,
     SERVICE_CONFIGURE_D1_PHASE_MODE,
     SUPPORTED_MODELS,
+    OPTION_VERBOSE_INFO_LOGGING,
+    OPTION_VERBOSE_INPUT_LOGGING,
     get_device_type,
 )
+from .helpers import is_verbose_info_logging
 
 if TYPE_CHECKING:
     from homeassistant.helpers.typing import ConfigType
@@ -84,7 +90,7 @@ _LOGGER = logging.getLogger(__name__)
 # Cover: J1 window covering controllers
 # Light: D1 universal dimmers
 # Button: Calibration button for J1 devices
-PLATFORMS: list[Platform] = [Platform.COVER, Platform.LIGHT, Platform.BUTTON]
+PLATFORMS: list[Platform] = [Platform.COVER, Platform.LIGHT, Platform.SWITCH, Platform.SENSOR, Platform.BUTTON]
 
 # ZHA integration constants
 # Note: ZHA does not emit dispatcher signals for device additions.
@@ -130,6 +136,18 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         SERVICE_CALIBRATE,
         async_calibrate_j1,
     )
+    # Advanced J1 tuning
+    try:
+        from .const import SERVICE_TUNE_J1_ADVANCED
+
+        _LOGGER.debug("Registering J1 advanced tuning service: %s", SERVICE_TUNE_J1_ADVANCED)
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_TUNE_J1_ADVANCED,
+            async_tune_j1,
+        )
+    except Exception:
+        _LOGGER.debug("Unable to register J1 tuning service", exc_info=True)
 
     # Register D1 configuration services
     _LOGGER.debug("Registering D1 phase mode service: %s", SERVICE_CONFIGURE_D1_PHASE_MODE)
@@ -146,17 +164,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         async_configure_ballast,
     )
 
-    _LOGGER.debug("Registering D1 inputs service: %s", SERVICE_CONFIGURE_D1_INPUTS)
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_CONFIGURE_D1_INPUTS,
-        async_configure_inputs,
-    )
+    # D1 inputs are configured via Options Flow presets (micro-code). Service removed.
 
     # Note: S1 input configuration is now done via Config Flow UI
     # (Settings → Devices & Services → Ubisys → Configure)
 
-    _LOGGER.info("Registered %d Ubisys services", 4)
+    # Gate registration info to reduce noise
+    _LOGGER.log(
+        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+        "Registered Ubisys services",
+    )
 
     # Set up discovery listener and input monitoring after Home Assistant starts
     # Why wait for EVENT_HOMEASSISTANT_STARTED?
@@ -173,6 +190,43 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         # Note: ZHA doesn't emit device addition dispatcher signals, so we
         # query the device registry instead of listening for events
         hass.async_create_task(async_discover_devices(hass))
+
+        # Also subscribe to device registry updates to discover devices paired
+        # after startup without requiring a restart.
+        @callback
+        def _device_registry_listener(event):
+            try:
+                action = event.data.get("action")
+                if action != "create":
+                    return
+                device_id = event.data.get("device_id")
+                if not device_id:
+                    return
+                dev_reg = dr.async_get(hass)
+                device = dev_reg.async_get(device_id)
+                if not device or device.manufacturer != MANUFACTURER:
+                    return
+                # Basic model normalization (strip parentheses suffix)
+                model = device.model.split("(")[0].strip() if device.model else ""
+                if model not in SUPPORTED_MODELS:
+                    return
+                # Trigger config flow if not already configured
+                for entry in hass.config_entries.async_entries(DOMAIN):
+                    if entry.data.get("device_ieee") == str(
+                        next((idv for (idd, idv) in device.identifiers if idd == "zha"), "")
+                    ):
+                        return
+                _LOGGER.log(
+                    logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+                    "Auto-discovering newly added Ubisys device: %s %s",
+                    device.manufacturer,
+                    model,
+                )
+                hass.async_create_task(async_discover_devices(hass))
+            except Exception:  # best-effort listener
+                _LOGGER.debug("Device registry listener encountered an error", exc_info=True)
+
+        async_track_device_registry_updated_event(hass, _device_registry_listener)
 
         # Set up input monitoring for all already-configured devices
         # This handles devices that were configured before this startup
@@ -212,6 +266,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # entities to avoid confusion (e.g., two "Bedroom Blind" entities)
     await _hide_zha_entity(hass, entry)
 
+    # Track options updates to refresh verbose flags
+    entry.async_on_unload(entry.add_update_listener(_options_update_listener))
+
+    # Recompute verbose flags across entries
+    _recompute_verbose_flags(hass)
+
     return True
 
 
@@ -230,6 +290,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
+        _recompute_verbose_flags(hass)
 
     return unload_ok
 
@@ -480,7 +541,8 @@ async def async_discover_devices(hass: HomeAssistant) -> None:
 
         # Trigger discovery config flow
         triggered_count += 1
-        _LOGGER.info(
+        _LOGGER.log(
+            logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
             "Auto-discovering Ubisys device: %s %s (IEEE: %s)",
             device_entry.manufacturer,
             model,
@@ -502,7 +564,8 @@ async def async_discover_devices(hass: HomeAssistant) -> None:
             )
         )
 
-    _LOGGER.info(
+    _LOGGER.log(
+        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
         "Device discovery complete: %d Ubisys devices found, "
         "%d already configured, %d new config flows triggered",
         found_count,
@@ -511,3 +574,21 @@ async def async_discover_devices(hass: HomeAssistant) -> None:
     )
 
 
+def _recompute_verbose_flags(hass: HomeAssistant) -> None:
+    """Recompute and store global verbose logging flags from all entries."""
+    info = any(
+        entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False)
+        for entry in hass.config_entries.async_entries(DOMAIN)
+    )
+    per_input = any(
+        entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False)
+        for entry in hass.config_entries.async_entries(DOMAIN)
+    )
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN]["verbose_info_logging"] = info
+    hass.data[DOMAIN]["verbose_input_logging"] = per_input
+
+
+async def _options_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle options update by recomputing verbose flags."""
+    _recompute_verbose_flags(hass)

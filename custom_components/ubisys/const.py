@@ -152,7 +152,7 @@ CALIBRATION_MODE_ATTR: Final = 0x0017    # Mode attribute in WindowCovering clus
 CALIBRATION_MODE_ENTER: Final = 0x02     # Value to enter calibration mode
 CALIBRATION_MODE_EXIT: Final = 0x00      # Value to exit calibration mode
 
-# Calibration timing constants (used by calibration.py)
+# Calibration timing constants (used by j1_calibration.py)
 STALL_DETECTION_INTERVAL: Final = 0.5    # Check position every 0.5 seconds
 STALL_DETECTION_TIME: Final = 3.0        # Position unchanged for 3s = stall
 PER_MOVE_TIMEOUT: Final = 120            # Maximum 120s per movement
@@ -288,17 +288,19 @@ DIMMER_SETUP_ATTR_MODE: Final = 0x0002  # Phase control mode attribute
 #   We monitor these endpoints to detect button presses.
 #
 # Why This Matters:
-#   - Calibration (J1): Must access EP2 for WindowCovering cluster
-#   - Phase mode (D1): DimmerSetup on EP1, Ballast on EP4 (different endpoints!)
+#   - Calibration (J1): WindowCovering cluster probed on EP1 then EP2
+#   - Phase mode (D1): DimmerSetup on EP1
+#   - Ballast config (D1): Ballast cluster on EP1
 #   - Input config (all): DeviceSetup always on EP232
 #   - Input monitoring: Watch EP2-3 for controller commands
+#   - Power metering (D1): Metering cluster on EP4
 #
 # Device-Specific Endpoint Maps:
 #
-J1_WINDOW_COVERING_ENDPOINT: Final = 2  # J1 WindowCovering cluster endpoint
-D1_DIMMABLE_LIGHT_ENDPOINT: Final = 1   # D1 Dimmable Light endpoint (DimmerSetup cluster here)
-D1_DIMMER_ENDPOINT: Final = 4           # D1 advanced control (Ballast, DeviceSetup)
-D1_METERING_ENDPOINT: Final = 5         # D1 power metering endpoint
+J1_WINDOW_COVERING_ENDPOINT: Final = 2  # J1 WindowCovering cluster endpoint (legacy, now probes EP1 first)
+D1_DIMMABLE_LIGHT_ENDPOINT: Final = 1   # D1 Dimmable Light (Ballast, DimmerSetup clusters here)
+D1_DIMMER_ENDPOINT: Final = 4           # DEPRECATED: Use D1_DIMMABLE_LIGHT_ENDPOINT for Ballast/DimmerSetup
+D1_METERING_ENDPOINT: Final = 4         # D1 power metering endpoint (Metering, Electrical Measurement)
 S1_ON_OFF_ENDPOINT: Final = 1           # S1 main on/off control endpoint
 S1_METERING_ENDPOINT: Final = 3         # S1 power metering (flush mount)
 S1R_METERING_ENDPOINT: Final = 4        # S1-R power metering (DIN rail - different from S1!)
@@ -320,6 +322,7 @@ SERVICE_CALIBRATE: Final = SERVICE_CALIBRATE_J1  # Points to deprecated name
 SERVICE_CONFIGURE_D1_PHASE_MODE: Final = "configure_d1_phase_mode"
 SERVICE_CONFIGURE_D1_BALLAST: Final = "configure_d1_ballast"
 SERVICE_CONFIGURE_D1_INPUTS: Final = "configure_d1_inputs"
+SERVICE_TUNE_J1_ADVANCED: Final = "tune_j1_advanced"
 
 # Switch configuration (S1/S1-R)
 # Input configuration is now done via Config Flow UI (Settings → Devices → Configure)
@@ -371,3 +374,11 @@ def supports_calibration(model: str) -> bool:
         False
     """
     return model in WINDOW_COVERING_MODELS
+# Logging / diagnostics toggles
+# Set to True to log each per-event input at INFO; otherwise logs at DEBUG
+VERBOSE_INPUT_LOGGING: Final = False
+VERBOSE_INFO_LOGGING: Final = False
+
+# Options flow keys for logging verbosity (stored in config entry options)
+OPTION_VERBOSE_INFO_LOGGING: Final = "verbose_info_logging"
+OPTION_VERBOSE_INPUT_LOGGING: Final = "verbose_input_logging"

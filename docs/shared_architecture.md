@@ -13,7 +13,7 @@ This document explains the shared architecture between J1 (window covering) and 
 Each module has ONE clear responsibility:
 
 ```
-calibration.py        → ONLY window covering calibration (J1-specific)
+j1_calibration.py     → ONLY window covering calibration (J1-specific)
 device_config.py      → Common device configuration utilities (shared)
 d1_config.py          → D1-specific configuration logic
 const.py              → All constants (shared)
@@ -120,7 +120,7 @@ def configure_d1_dimmer(hass, entity_id, phase_mode, ballast_config):
 ┌─────────────────────────────────────────────────────────────┐
 │              BUSINESS LOGIC LAYER (Services)                │
 │  ┌──────────────────┐  ┌──────────────────┐               │
-│  │  calibration.py  │  │  d1_config.py    │               │
+│  │  j1_calibration.py│  │  d1_config.py    │               │
 │  │                  │  │                  │               │
 │  │  - J1 calibration│  │  - Phase mode    │               │
 │  │  - 5-phase seq   │  │  - Ballast config│               │
@@ -234,7 +234,7 @@ def get_device_model(config_entry):
 
 ---
 
-### J1-Specific Code (calibration.py)
+### J1-Specific Code (j1_calibration.py)
 
 **Purpose:** Window covering calibration (ONLY used by J1)
 
@@ -549,7 +549,7 @@ def supports_calibration(model: str) -> bool:
 
 ---
 
-### calibration.py - J1 Calibration Logic
+### j1_calibration.py - J1 Calibration Logic
 
 **Responsibility:** Window covering calibration (J1-specific)
 
@@ -683,9 +683,9 @@ async def test_validate_entity_not_found():
     """Test validation fails for missing entity."""
 ```
 
-**J1-specific (calibration.py):**
+**J1-specific (j1_calibration.py):**
 ```python
-# tests/test_calibration.py
+# tests/test_j1_calibration.py
 async def test_calibration_phase_1():
     """Test entering calibration mode."""
 
@@ -735,7 +735,7 @@ async def test_ballast_min_level_validation():
 
 ### 3. **Extensibility**
 - Adding S1 switch support: Create `s1_config.py`, reuse `helpers.py`
-- Adding new J1 features: Modify only `calibration.py`
+- Adding new J1 features: Modify only `j1_calibration.py`
 - Adding new shared utility: Add to `helpers.py`, all devices benefit
 
 ### 4. **Readability**
@@ -794,8 +794,8 @@ class AbstractUbisysDevice(ABC):
 We DON'T let modules import each other:
 ```python
 # BAD
-# calibration.py imports d1_config.py
-# d1_config.py imports calibration.py
+# j1_calibration.py imports d1_config.py
+# d1_config.py imports j1_calibration.py
 ```
 
 **Why bad:** Circular imports cause loading issues, tight coupling.

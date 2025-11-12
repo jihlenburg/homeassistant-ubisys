@@ -6,7 +6,7 @@
   "dependencies": ["zha"],
   "documentation": "https://github.com/jihlenburg/homeassistant-ubisys",
   "integration_type": "device",
-  "iot_class": "local_polling",
+  "iot_class": "local_push",
   "issue_tracker": "https://github.com/jihlenburg/homeassistant-ubisys/issues",
   "requirements": [],
   "version": "1.2.0"

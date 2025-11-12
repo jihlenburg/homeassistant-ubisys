@@ -47,6 +47,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -73,7 +74,13 @@ from .const import (
     PHASE_MODES,
     UBISYS_MANUFACTURER_CODE,
 )
-from .helpers import get_cluster, get_entity_device_info, validate_ubisys_entity
+from .helpers import (
+    get_cluster,
+    get_entity_device_info,
+    validate_ubisys_entity,
+    async_write_and_verify_attrs,
+)
+from .logtools import info_banner, kv, Stopwatch
 
 if TYPE_CHECKING:
     from zigpy.zcl import Cluster
@@ -108,15 +115,15 @@ async def async_configure_phase_mode(
     How It Works:
         1. Validate entity is a Ubisys D1 light entity
         2. Get device IEEE address from entity registry
-        3. Access D1's Ballast cluster (0x0301) on endpoint 4
-        4. Write phase control mode attribute (exact location TBD via testing)
+        3. Access D1's DimmerSetup cluster (0xFC01) on endpoint 1
+        4. Write mode attribute (0x0002) with phase control value
         5. Verify write succeeded
 
     Note on Implementation:
-        The exact attribute ID for phase control mode is TBD. Based on other
-        Ubisys devices, it's likely either:
-        - A manufacturer-specific attribute in Ballast cluster (0x0301)
-        - An attribute in DeviceSetup cluster (0xFC00)
+        Phase control mode is in DimmerSetup cluster (0xFC01) on EP1, not Ballast.
+        Attribute 0x0002 controls phase mode:
+        - Bits [1:0]: 0=automatic, 1=forward, 2=reverse
+        - Only writable when output is OFF
 
         Testing with a real D1 device will reveal the correct location.
         For now, this implementation uses a placeholder approach.
@@ -144,15 +151,12 @@ async def async_configure_phase_mode(
         - const.py: PHASE_MODES mapping
         - Ubisys D1 Technical Reference Manual (phase control section)
     """
-    _LOGGER.debug(
-        "D1 Config: Starting phase mode configuration for %s (mode=%s)",
-        entity_id,
-        phase_mode,
-    )
+    info_banner(_LOGGER, "D1 Phase Mode", entity_id=entity_id, phase_mode=phase_mode)
+    sw = Stopwatch()
 
     # Step 1: Validate entity
     await validate_ubisys_entity(hass, entity_id, expected_domain="light")
-    _LOGGER.debug("D1 Config: ✓ Entity validation passed")
+    kv(_LOGGER, _LOGGER.level, "Entity validated", entity_id=entity_id)
 
     # Step 2: Validate phase mode parameter
     if phase_mode not in PHASE_MODES:
@@ -170,11 +174,7 @@ async def async_configure_phase_mode(
 
     # Step 3: Get device info
     device_id, device_ieee, model = await get_entity_device_info(hass, entity_id)
-    _LOGGER.debug(
-        "D1 Config: ✓ Device info: model=%s, ieee=%s",
-        model,
-        device_ieee,
-    )
+    kv(_LOGGER, _LOGGER.level, "Device info", model=model, ieee=device_ieee)
 
     # Step 4: Verify this is a D1 model
     if model not in ["D1", "D1-R"]:
@@ -203,13 +203,22 @@ async def async_configure_phase_mode(
             f"Could not access DimmerSetup cluster for {entity_id}. "
             f"Ensure the device is online and the D1 quirk is loaded."
         )
-    _LOGGER.debug("D1 Config: ✓ DimmerSetup cluster accessed")
+    kv(_LOGGER, _LOGGER.level, "DimmerSetup accessed", endpoint=D1_DIMMABLE_LIGHT_ENDPOINT)
 
-    # Step 6: Write phase control mode
-    # IMPORTANT: According to D1 technical reference, the Mode attribute
-    # is only writable when the output is OFF. If the light is currently ON,
-    # the write will fail. The service should be called when light is off.
-    _LOGGER.info(
+    # Step 6: Ensure output is OFF before writing mode
+    # The Mode attribute is writable only when output is OFF.
+    state = hass.states.get(entity_id)
+    if state and state.state == "on":
+        _LOGGER.debug("Light is ON; turning off before mode write")
+        await hass.services.async_call(
+            "light", "turn_off", {"entity_id": entity_id}, blocking=True
+        )
+        await asyncio.sleep(0.5)
+
+    # Step 7: Write phase control mode
+    from .helpers import is_verbose_info_logging
+    _LOGGER.log(
+        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
         "D1 Config: Configuring phase mode for %s: %s (%d)",
         entity_id,
         phase_mode,
@@ -217,38 +226,11 @@ async def async_configure_phase_mode(
     )
 
     try:
-        # Write the Mode attribute with manufacturer code
-        # The quirk will automatically inject the manufacturer code (0x10F2)
-        result = await cluster.write_attributes(
-            {DIMMER_SETUP_ATTR_MODE: phase_mode_value},
-            manufacturer=UBISYS_MANUFACTURER_CODE,
+        # Write + verify mode with manufacturer code
+        await async_write_and_verify_attrs(
+            cluster, {DIMMER_SETUP_ATTR_MODE: phase_mode_value}, manufacturer=UBISYS_MANUFACTURER_CODE
         )
-        _LOGGER.debug("D1 Config: Write result: %s", result)
-
-        # Check if write succeeded
-        # Note: result is a list of WriteAttributesResponse objects
-        if result and result[0].status != 0:
-            status_code = result[0].status
-            error_msg = f"Failed to write phase mode: status={status_code}"
-
-            # Provide helpful error message if write failed
-            if status_code == 0x87:  # INVALID_VALUE
-                error_msg += (
-                    " (Invalid value - ensure output is OFF before changing mode)"
-                )
-            elif status_code == 0x88:  # READ_ONLY
-                error_msg += (
-                    " (Attribute is read-only - ensure output is OFF)"
-                )
-
-            _LOGGER.error("D1 Config: %s", error_msg)
-            raise HomeAssistantError(error_msg)
-
-        _LOGGER.info(
-            "D1 Config: ✓ Successfully configured phase mode: %s -> %s",
-            entity_id,
-            phase_mode,
-        )
+        kv(_LOGGER, _LOGGER.level, "Phase mode set", phase_mode=phase_mode, elapsed_s=round(sw.elapsed, 1))
 
     except HomeAssistantError:
         # Re-raise HomeAssistantError as-is (already formatted)
@@ -293,7 +275,7 @@ async def async_configure_ballast(
         1. Validate entity is a Ubisys D1 light entity
         2. Validate min/max level values (range, min < max)
         3. Get device IEEE address from entity registry
-        4. Access D1's Ballast cluster (0x0301) on endpoint 4
+        4. Access D1's Ballast cluster (0x0301) on endpoint 1
         5. Write ballast_min_level (0x0011) and/or ballast_max_level (0x0012)
         6. Verify write succeeded
 
@@ -333,16 +315,12 @@ async def async_configure_ballast(
         - const.py: BALLAST_LEVEL_MIN, BALLAST_LEVEL_MAX constants
         - ZCL Spec 5.3: Ballast Configuration Cluster
     """
-    _LOGGER.debug(
-        "D1 Config: Starting ballast configuration for %s (min=%s, max=%s)",
-        entity_id,
-        min_level,
-        max_level,
-    )
+    info_banner(_LOGGER, "D1 Ballast Config", entity_id=entity_id, min=min_level, max=max_level)
+    sw = Stopwatch()
 
     # Step 1: Validate entity
     await validate_ubisys_entity(hass, entity_id, expected_domain="light")
-    _LOGGER.debug("D1 Config: ✓ Entity validation passed")
+    kv(_LOGGER, _LOGGER.level, "Entity validated", entity_id=entity_id)
 
     # Step 2: Validate parameters
     if min_level is None and max_level is None:
@@ -374,11 +352,7 @@ async def async_configure_ballast(
 
     # Step 3: Get device info
     device_id, device_ieee, model = await get_entity_device_info(hass, entity_id)
-    _LOGGER.debug(
-        "D1 Config: ✓ Device info: model=%s, ieee=%s",
-        model,
-        device_ieee,
-    )
+    kv(_LOGGER, _LOGGER.level, "Device info", model=model, ieee=device_ieee)
 
     # Step 4: Verify this is a D1 model
     if model not in ["D1", "D1-R"]:
@@ -389,11 +363,12 @@ async def async_configure_ballast(
     _LOGGER.debug("D1 Config: ✓ Model verification passed")
 
     # Step 5: Access Ballast cluster
+    # CRITICAL FIX (v1.2.0): Ballast is on EP1 (D1_DIMMABLE_LIGHT_ENDPOINT), not EP4
     cluster = await get_cluster(
         hass,
         device_ieee,
         CLUSTER_BALLAST,
-        D1_DIMMER_ENDPOINT,
+        D1_DIMMABLE_LIGHT_ENDPOINT,  # EP1 per quirk and manual
         "Ballast",
     )
 
@@ -402,7 +377,7 @@ async def async_configure_ballast(
             f"Could not access Ballast cluster for {entity_id}. "
             f"Ensure the device is online and the D1 quirk is loaded."
         )
-    _LOGGER.debug("D1 Config: ✓ Ballast cluster accessed")
+    kv(_LOGGER, _LOGGER.level, "Ballast accessed", endpoint=D1_DIMMABLE_LIGHT_ENDPOINT)
 
     # Step 6: Build attributes dictionary
     attributes_to_write = {}
@@ -416,33 +391,15 @@ async def async_configure_ballast(
         attributes_to_write,
     )
 
-    # Step 7: Write attributes
+    # Step 7: Write + verify attributes
     try:
-        # Standard ballast attributes don't require manufacturer code
-        # (unlike manufacturer-specific attributes which do)
-        result = await cluster.write_attributes(attributes_to_write)
-        _LOGGER.debug("D1 Config: Write result: %s", result)
-
-        # Check if write succeeded
-        # Result is a list of WriteAttributesResponse objects
-        for response in result:
-            if response.status != 0:
-                raise HomeAssistantError(
-                    f"Failed to write ballast attribute: status={response.status}"
-                )
-
-        # Build success message
+        await async_write_and_verify_attrs(cluster, attributes_to_write)
         changes = []
         if min_level is not None:
             changes.append(f"min_level={min_level}")
         if max_level is not None:
             changes.append(f"max_level={max_level}")
-
-        _LOGGER.info(
-            "D1 Config: ✓ Successfully configured ballast for %s: %s",
-            entity_id,
-            ", ".join(changes),
-        )
+        kv(_LOGGER, _LOGGER.level, "Ballast set", changes=", ".join(changes), elapsed_s=round(sw.elapsed, 1))
 
     except Exception as err:
         _LOGGER.error(
@@ -488,7 +445,7 @@ async def async_configure_inputs(
     How It Works (when implemented):
         1. Validate entity is a Ubisys D1 light entity
         2. Get device IEEE address from entity registry
-        3. Access D1's DeviceSetup cluster (0xFC00) on endpoint 4
+        3. Access D1's DeviceSetup cluster (0xFC00) on endpoint 232
         4. Write input_configurations (0x0000) attribute
         5. Optionally write input_actions (0x0001) attribute
         6. Verify write succeeded
@@ -524,6 +481,6 @@ async def async_configure_inputs(
 
     # When implementation is complete, this will:
     # 1. Get device info and verify D1 model
-    # 2. Access DeviceSetup cluster (0xFC00) on endpoint 4
+    # 2. Access DeviceSetup cluster (0xFC00) on endpoint 232
     # 3. Write input_configurations (0x0000) and optionally input_actions (0x0001)
     # 4. Verify write succeeded and log result

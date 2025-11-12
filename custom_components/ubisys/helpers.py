@@ -11,16 +11,16 @@ Architecture Note:
     (only from HA core and const.py). This prevents circular dependencies and
     makes the dependency tree clear:
 
-        calibration.py  ←┐
-                         ├→ helpers.py → const.py
-        d1_config.py   ←┘
+        j1_calibration.py  ←┐
+                             ├→ helpers.py → const.py
+        d1_config.py       ←┘
 
     Both device-specific modules depend on helpers, but helpers doesn't
     depend on them. This is the Dependency Inversion Principle in action.
 
 Separation of Concerns:
     - helpers.py: Generic utilities (cluster access, validation)
-    - calibration.py: J1-specific calibration logic
+    - j1_calibration.py: J1-specific calibration logic
     - d1_config.py: D1-specific configuration logic
 
 Why Shared:
@@ -35,12 +35,18 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
+from async_timeout import timeout
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
-from .const import DOMAIN, UBISYS_MANUFACTURER_CODE
+from .const import (
+    DOMAIN,
+    UBISYS_MANUFACTURER_CODE,
+    VERBOSE_INFO_LOGGING,
+    VERBOSE_INPUT_LOGGING,
+)
 
 if TYPE_CHECKING:
     from zigpy.zcl import Cluster
@@ -204,10 +210,10 @@ async def get_cluster(
         The mechanism to access Zigbee clusters via ZHA is identical for all
         device types. Only the cluster_id and endpoint_id parameters differ.
         Sharing this prevents duplicating the ZHA gateway access logic in both
-        calibration.py and d1_config.py.
+        j1_calibration.py and d1_config.py.
 
     See Also:
-        - calibration.py: Uses this for WindowCovering cluster access
+        - j1_calibration.py: Uses this for WindowCovering cluster access
         - d1_config.py: Uses this for Ballast cluster access
     """
     # Get ZHA integration data
@@ -307,7 +313,7 @@ async def get_entity_device_info(
         the IEEE address for cluster access. The lookup mechanism is identical.
 
     See Also:
-        - calibration.py: Uses this to get device info for calibration
+        - j1_calibration.py: Uses this to get device info for calibration
         - d1_config.py: Uses this to get device info for configuration
     """
     # Get entity registry
@@ -394,7 +400,7 @@ async def validate_ubisys_entity(
         Sharing prevents duplication and ensures consistent error messages.
 
     See Also:
-        - calibration.py: Validates cover entity before calibration
+        - j1_calibration.py: Validates cover entity before calibration
         - d1_config.py: Validates light entity before configuration
     """
     # Check 1: Entity exists in registry
@@ -467,7 +473,7 @@ async def find_zha_entity_for_device(
         The search logic is identical across domains.
 
     See Also:
-        - calibration.py: Finds ZHA cover entity for position monitoring
+        - j1_calibration.py: Finds ZHA cover entity for position monitoring
         - cover.py: Finds ZHA cover entity for state delegation
         - light.py: (Future) Finds ZHA light entity for state delegation
     """
@@ -527,3 +533,148 @@ async def get_device_setup_cluster(
         DEVICE_SETUP_ENDPOINT,
         "DeviceSetup",
     )
+
+
+# ==============================================================================
+# ZCL COMMAND WITH TIMEOUT/RETRY
+# ==============================================================================
+
+async def async_zcl_command(
+    cluster: "Cluster",
+    command: str,
+    *args: Any,
+    timeout_s: float = 10.0,
+    retries: int = 1,
+    **kwargs: Any,
+) -> Any:
+    """Send a Zigbee cluster command with timeout and limited retries.
+
+    Args:
+        cluster: Zigbee cluster
+        command: Command name (e.g., "up_open", "down_close", "stop")
+        *args: Positional args passed to cluster.command
+        timeout_s: Timeout per attempt
+        retries: Number of retries on failure
+        **kwargs: Keyword args for cluster.command
+
+    Returns:
+        Command result
+
+    Raises:
+        HomeAssistantError on failure
+    """
+    attempt = 0
+    last_err: Exception | None = None
+    while attempt <= retries:
+        try:
+            _LOGGER.debug(
+                "ZCL cmd attempt %d: %s(%s)", attempt + 1, command, ", ".join(map(str, args))
+            )
+            async with timeout(timeout_s):
+                return await cluster.command(command, *args, **kwargs)
+        except Exception as err:
+            last_err = err
+            attempt += 1
+            if attempt > retries:
+                break
+            _LOGGER.debug("ZCL cmd retry after error: %s", err)
+    raise HomeAssistantError(f"Cluster command failed: {command}: {last_err}")
+# ==============================================================================
+# ATTR WRITE + READBACK VERIFICATION
+# ==============================================================================
+# Shared helper to write manufacturer/standard attributes and verify by reading
+# them back. This reduces duplication across J1 tuning and D1 configuration.
+
+async def async_write_and_verify_attrs(
+    cluster: "Cluster",
+    attrs: dict[int, int],
+    *,
+    manufacturer: int | None = None,
+    write_timeout: float = 10.0,
+    read_timeout: float = 10.0,
+    retries: int = 1,
+) -> None:
+    """Write attributes on a cluster, then read and verify values.
+
+    Args:
+        cluster: Zigbee cluster object (from get_cluster/get_device_setup_cluster)
+        attrs: Mapping of attribute_id -> value to write
+        manufacturer: Manufacturer code if required (e.g., 0x10F2 for Ubisys)
+
+    Raises:
+        HomeAssistantError: If write fails or readback does not match.
+
+    Notes:
+        - For manufacturer-specific attributes, pass manufacturer=0x10F2 (Ubisys).
+        - For standard ZCL attributes, manufacturer=None is fine.
+    """
+    attempt = 0
+    last_err: Exception | None = None
+    while attempt <= retries:
+        try:
+            _LOGGER.debug("Write+Verify: attempt %d writing attrs %s (mfg=%s)", attempt + 1, attrs, manufacturer)
+            async with timeout(write_timeout):
+                result = await cluster.write_attributes(attrs, manufacturer=manufacturer)
+            _LOGGER.debug("Write+Verify: Write result: %s", result)
+
+            # Read back the attributes we wrote
+            read_ids = list(attrs.keys())
+            async with timeout(read_timeout):
+                readback = await cluster.read_attributes(read_ids, manufacturer=manufacturer)
+            _LOGGER.debug("Write+Verify: Readback result: %s", readback)
+
+            # Normalize response
+            if isinstance(readback, list) and readback:
+                readback = readback[0]
+
+            mismatches: dict[int, dict[str, int | None]] = {}
+            for attr_id, expected in attrs.items():
+                actual = readback.get(attr_id)
+                if actual != expected:
+                    mismatches[attr_id] = {"expected": expected, "actual": actual}
+
+            if mismatches:
+                raise HomeAssistantError(f"Attribute verification failed: {mismatches}")
+
+            return
+
+        except Exception as err:  # capture and retry
+            last_err = err
+            attempt += 1
+            if attempt > retries:
+                break
+            _LOGGER.debug("Write+Verify: retrying after error: %s", err)
+
+    if isinstance(last_err, HomeAssistantError):
+        raise last_err
+    raise HomeAssistantError(f"Attribute write/verify failed: {last_err}")
+# ==============================================================================
+# VERBOSE LOGGING FLAGS (GLOBAL RUNTIME)
+# ==============================================================================
+
+def is_verbose_info_logging(hass: HomeAssistant | None) -> bool:
+    """Return whether verbose INFO logging is enabled.
+
+    Prefers runtime flags in hass.data[DOMAIN], falling back to constants.
+    """
+    try:
+        if hass is None:
+            return VERBOSE_INFO_LOGGING
+        domain_data = hass.data.get(DOMAIN, {})
+        return bool(domain_data.get("verbose_info_logging", VERBOSE_INFO_LOGGING))
+    except Exception:
+        return VERBOSE_INFO_LOGGING
+
+
+def is_verbose_input_logging(hass: HomeAssistant | None) -> bool:
+    """Return whether per-input INFO logs are enabled.
+
+    Prefers runtime flags in hass.data[DOMAIN], falling back to constants.
+    """
+    try:
+        if hass is None:
+            return VERBOSE_INPUT_LOGGING
+        domain_data = hass.data.get(DOMAIN, {})
+        return bool(domain_data.get("verbose_input_logging", VERBOSE_INPUT_LOGGING))
+    except Exception:
+        return VERBOSE_INPUT_LOGGING

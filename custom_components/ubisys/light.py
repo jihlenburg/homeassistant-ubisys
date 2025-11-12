@@ -49,6 +49,7 @@ from .const import (
     CONF_DEVICE_IEEE,
     DOMAIN,
 )
+from .helpers import is_verbose_info_logging
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -111,7 +112,8 @@ async def async_setup_entry(
         )
         return
 
-    _LOGGER.info(
+    _LOGGER.log(
+        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
         "Creating Ubisys light wrapper for %s (ZHA entity: %s, model: %s)",
         device_ieee,
         zha_entity_id,

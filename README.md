@@ -230,6 +230,11 @@ zha:
 
 ## 🚀 Quick Start
 
+Prefer a concise, click‑by‑click guide? See docs/getting_started.md.
+Device trigger examples: docs/device_triggers_examples.md.
+
+For logging controls and best practices, see docs/logging.md.
+
 ### 1. Pair Your Device with ZHA
 
 Pair your Ubisys J1 with ZHA:
@@ -594,7 +599,7 @@ homeassistant-ubisys/
 ├── custom_components/ubisys/     # Main integration
 │   ├── __init__.py              # Setup, discovery, and service registration
 │   ├── button.py                # Calibration button platform
-│   ├── calibration.py           # Calibration module
+│   ├── j1_calibration.py        # J1 calibration module
 │   ├── config_flow.py           # Configuration UI with auto-discovery
 │   ├── const.py                 # Constants and mappings
 │   ├── cover.py                 # Wrapper cover platform
@@ -604,7 +609,7 @@ homeassistant-ubisys/
 │   └── translations/
 │       └── en.json              # English translations
 ├── custom_zha_quirks/
-│   └── ubisys_j1.py             # ZHA quirk for J1 (submission-ready)
+│   └── ubisys_j1.py             # ZHA quirk for J1
 ├── docs/                        # Documentation
 ├── install.sh                   # Installation script
 └── README.md                    # This file
@@ -678,3 +683,14 @@ See [Architecture Overview](docs/architecture_overview.md) for detailed integrat
 ---
 
 **Made with ❤️ for the Home Assistant community**
+## ℹ️ S1/S1‑R Support
+
+- The integration provides a wrapper switch entity for S1/S1‑R and exposes input presets via the Options Flow.
+- Metering is handled by ZHA (standard sensors). Advanced physical input behaviors are configured via presets.
+
+See Options → “Configure Physical Inputs”.
+## 🧪 Diagnostics & Tuning
+
+- Last Input Event Sensor: Each device now exposes a “Last Input Event” sensor that updates on every physical button press and keeps a small rolling history in attributes.
+- J1 Advanced Tuning: Configure guard time, inactive power threshold, startup steps, and additional steps via Options (Shade + Tuning) or the `ubisys.tune_j1_advanced` service. See docs/advanced_j1_tuning.md.
+- Test Mode: The calibration service `ubisys.calibrate_j1` accepts `test_mode: true` to perform a read‑only health check without entering calibration.

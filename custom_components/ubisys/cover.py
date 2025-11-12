@@ -28,6 +28,7 @@ from .const import (
     DOMAIN,
     SHADE_TYPE_TO_FEATURES,
 )
+from .helpers import is_verbose_info_logging
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,7 +54,8 @@ async def async_setup_entry(
         )
         return
 
-    _LOGGER.info(
+    _LOGGER.log(
+        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
         "Creating Ubisys cover wrapper for %s (ZHA entity: %s, shade type: %s)",
         device_ieee,
         zha_entity_id,

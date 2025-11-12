@@ -495,7 +495,7 @@ grep -i ubisys ~/.homeassistant/home-assistant.log | tail -50
 
 ### Modifying Calibration Sequence
 
-Calibration is implemented in `custom_components/ubisys/calibration.py` as a service with phase-based architecture.
+Calibration is implemented in `custom_components/ubisys/j1_calibration.py` as a service with phase-based architecture.
 
 **To add a new calibration phase:**
 

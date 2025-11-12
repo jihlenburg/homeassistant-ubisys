@@ -43,7 +43,7 @@ This integration enhances Home Assistant's Zigbee Home Automation (ZHA) support 
 
 **Status:** Not yet implemented
 
-### Dimmers (Planned)
+### Dimmers
 
 **Models:** D1, D1-R
 
@@ -51,9 +51,10 @@ This integration enhances Home Assistant's Zigbee Home Automation (ZHA) support 
 
 **Special Features:**
 - Configurable dimming modes (automatic, forward phase, reverse phase)
-- Wide compatibility with different load types
+- Ballast min/max configuration for LED compatibility
+- Power metering via Metering/Electrical Measurement
 
-**Status:** Not yet implemented
+**Status:** Implemented
 
 ---
 
@@ -78,10 +79,10 @@ This integration enhances Home Assistant's Zigbee Home Automation (ZHA) support 
 │  │  ├─ cover.py        (J1 wrapper with feature filtering)   ││
 │  │  ├─ button.py       (J1 calibration button)               ││
 │  │  ├─ switch.py       (S1/S2 - planned)                     ││
-│  │  └─ light.py        (D1 - planned)                        ││
+│  │  └─ light.py        (D1)                                  ││
 │  │                                                            ││
 │  │  Services:                                                 ││
-│  │  └─ calibration.py  (Window covering calibration)         ││
+│  │  └─ j1_calibration.py  (Window covering calibration)      ││
 │  │                                                            ││
 │  └────────────────────────────────────────────────────────────┘│
 │                              │                                  │
@@ -292,7 +293,7 @@ custom_components/ubisys/
 ├── config_flow.py           # UI-based configuration flow
 ├── cover.py                 # Window covering wrapper entity (J1)
 ├── button.py                # Calibration button entity (J1)
-├── calibration.py           # Window covering calibration service
+├── j1_calibration.py        # Window covering calibration service
 ├── manifest.json            # Integration metadata
 ├── services.yaml            # Service definitions
 ├── strings.json             # UI strings
