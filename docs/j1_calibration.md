@@ -48,6 +48,12 @@ You should run calibration:
 
 Note on terminology: User-facing docs describe calibration as “Steps”. Developer logs and code reference internal “Phases” for clarity.
 
+Shade type naming (Z2M parity):
+- Roller Shade (aka roller_shade)
+- Vertical Blind (aka vertical_blind)
+- Venetian Blind (aka venetian_blind)
+- Exterior Venetian Blind (aka venetian_blind)
+
 ### Method 1: Via Home Assistant UI
 
 1. Navigate to **Developer Tools** → **Services**
@@ -119,6 +125,9 @@ The script first configures the Zigbee `WindowCoveringType` attribute based on y
 **What you'll see:** No visible movement
 
 **Duration:** ~1 second
+
+Tip: Tilt steps default
+- For venetian blinds, a tilt range of ~100 steps works well on most setups. The integration writes and verifies this in the final step; you can fine‑tune later via the advanced tuning service.
 
 #### 2. Move to Fully Open
 

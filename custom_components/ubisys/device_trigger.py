@@ -204,14 +204,14 @@ DEVICE_TRIGGERS = {
 
 # User-friendly trigger names for the UI
 TRIGGER_NAMES = {
-    TRIGGER_BUTTON_1_PRESSED: "Button 1 pressed",
-    TRIGGER_BUTTON_1_RELEASED: "Button 1 released",
-    TRIGGER_BUTTON_1_SHORT_PRESS: "Button 1 short press",
-    TRIGGER_BUTTON_1_LONG_PRESS: "Button 1 long press",
-    TRIGGER_BUTTON_2_PRESSED: "Button 2 pressed",
-    TRIGGER_BUTTON_2_RELEASED: "Button 2 released",
-    TRIGGER_BUTTON_2_SHORT_PRESS: "Button 2 short press",
-    TRIGGER_BUTTON_2_LONG_PRESS: "Button 2 long press",
+    TRIGGER_BUTTON_1_PRESSED: "Input 1 · press",
+    TRIGGER_BUTTON_1_RELEASED: "Input 1 · release",
+    TRIGGER_BUTTON_1_SHORT_PRESS: "Input 1 · short",
+    TRIGGER_BUTTON_1_LONG_PRESS: "Input 1 · hold",
+    TRIGGER_BUTTON_2_PRESSED: "Input 2 · press",
+    TRIGGER_BUTTON_2_RELEASED: "Input 2 · release",
+    TRIGGER_BUTTON_2_SHORT_PRESS: "Input 2 · short",
+    TRIGGER_BUTTON_2_LONG_PRESS: "Input 2 · hold",
 }
 
 # Trigger schema for validation

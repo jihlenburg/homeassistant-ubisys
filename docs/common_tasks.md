@@ -56,3 +56,12 @@ logger:
 ## Create Automations using Input Events
 
 See docs/device_triggers_examples.md for copy‑paste examples using `ubisys_input_event` and device triggers.
+
+## View Power/Energy (Metering)
+
+- D1/S1 metering entities are provided by ZHA (standard sensors), not this wrapper. Look for sensors like:
+  - Power (W)
+  - Energy (kWh)
+  - Voltage (V)
+  - Current (A)
+- Names vary by ZHA entity; you can rename in the UI for clarity.
