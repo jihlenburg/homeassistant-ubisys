@@ -2,6 +2,8 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
+Docs: [index](index.md) · [common tasks](common_tasks.md) · [FAQ](faq.md)
+
 This matrix summarizes supported devices, features, and key endpoints/clusters.
 
 | Model  | Platform | Status            | Position | Tilt | Calibration | Phase/Ballast | Inputs (Controller EPs) | Notable Endpoints |
@@ -17,4 +19,3 @@ Notes
 - J1 WindowCovering cluster may appear on EP1 or EP2 depending on firmware; the integration probes both.
 - D1 phase/ballast configuration exposed via services and Options; outputs must be OFF before changing mode.
 - S1/S1‑R: Input presets via Options; advanced features and quirks continue to evolve.
-

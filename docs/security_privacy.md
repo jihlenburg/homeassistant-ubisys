@@ -2,6 +2,8 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
+Docs: [index](index.md) · [diagnostics](../custom_components/ubisys/diagnostics.py) · [logging policy](logging.md)
+
 ## Data Scope
 
 This integration operates locally via ZHA and does not send data externally.
@@ -21,4 +23,3 @@ Diagnostics payloads redact device IEEE addresses and omit secrets. Endpoint/clu
 - Manufacturer code handling is done via quirks or explicit manufacturer arguments.
 - Attribute writes use write+verify with readback and rollback on mismatch.
 - Zigbee commands use timeouts and limited retries.
-

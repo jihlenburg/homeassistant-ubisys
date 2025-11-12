@@ -2,6 +2,8 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
+Docs: [index](index.md) · [common tasks](common_tasks.md) · [troubleshooting](troubleshooting.md) · [FAQ](faq.md)
+
 This guide explains the calibration process for Ubisys J1 window covering controllers in detail.
 
 ## Why Calibration is Needed

@@ -2,6 +2,8 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
+Docs: [index](index.md) · [common tasks](common_tasks.md) · [troubleshooting](troubleshooting.md) · [FAQ](faq.md)
+
 ## Overview
 
 The Ubisys S1 (flush mount) and S1-R (DIN rail) power switches support physical input configuration via the Options Flow.
@@ -28,4 +30,3 @@ Status: Wrapper platform exists; advanced features and quirks are evolving. Inpu
 Notes
 - Use “Verbose info logging” if you want INFO-level confirmation in logs.
 - If verification fails, the integration rolls back to the previous configuration.
-

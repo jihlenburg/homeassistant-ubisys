@@ -1,5 +1,9 @@
 # Services Reference
 
+Compatibility: Home Assistant 2024.1+ (Python 3.11+)
+
+Docs: [index](index.md) · [events reference](events_triggers_reference.md) · [common tasks](common_tasks.md)
+
 ## ubisys.calibrate_j1
 - Purpose: Run automated calibration for J1 cover.
 - Fields:

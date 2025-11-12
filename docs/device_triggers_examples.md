@@ -2,6 +2,8 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
+Docs: [index](index.md) · [events reference](events_triggers_reference.md) · [common tasks](common_tasks.md)
+
 This integration fires a `ubisys_input_event` for physical input activity. You can use it to build automations without YAML quirks.
 
 ## Basic toggle on short press

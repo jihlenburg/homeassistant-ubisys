@@ -1,5 +1,9 @@
 # Events & Triggers Reference
 
+Compatibility: Home Assistant 2024.1+ (Python 3.11+)
+
+Docs: [index](index.md) · [device triggers examples](device_triggers_examples.md) · [services reference](services_reference.md)
+
 ## ubisys_input_event (bus event)
 
 Fired for physical input activity (buttons/switches).

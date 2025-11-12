@@ -2,6 +2,8 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
+Docs: [index](index.md) · [common tasks](common_tasks.md) · [logging policy](logging.md) · [FAQ](faq.md)
+
 This guide helps you diagnose and fix common issues with the Ubisys Home Assistant integration.
 
 ## Table of Contents

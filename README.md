@@ -1,5 +1,7 @@
 # Ubisys Zigbee Devices for Home Assistant
 
+[![CI](https://github.com/jihlenburg/homeassistant-ubisys/actions/workflows/ci.yml/badge.svg)](https://github.com/jihlenburg/homeassistant-ubisys/actions/workflows/ci.yml)
+
 Docs home: docs/index.md
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
@@ -661,32 +663,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🗺️ Roadmap
 
-### Device Support
-- [x] **J1** - Window covering controller ✅ v1.1.1
-- [x] **J1-R** - DIN rail variant ✅ v1.1.1
-- [x] **D1** - Universal dimmer ✅ v2.0.0
-- [x] **D1-R** - Universal dimmer (DIN rail) ✅ v2.0.0
-- [ ] **S1/S1-R** - Power switch (16A with energy metering)
-- [ ] **S2/S2-R** - Dual power switch (500W×2)
-
-### Features
-- [x] Phase control mode configuration (D1) ✅ v2.0.0
-- [x] Ballast configuration (D1) ✅ v2.0.0
-- [ ] Input configuration (D1) - Planned Phase 3
-- [ ] Energy metering dashboard (S1/D1 devices)
-- [ ] Scene support for preset positions (J1)
-- [ ] Position offset configuration (J1)
-- [ ] Speed control configuration (J1)
-- [ ] Web-based calibration wizard (J1)
-- [ ] Multi-language support
-
-### Documentation
-- [x] Architecture overview ✅ v1.1.1
-- [x] Window covering architecture ✅ v1.1.1
-- [x] D1 dimmer configuration guide ✅ v2.0.0
-- [ ] S1/S2 switch integration guide
-
-See [Architecture Overview](docs/architecture_overview.md) for detailed integration design and extensibility.
+See docs/roadmap.md
 
 ---
 

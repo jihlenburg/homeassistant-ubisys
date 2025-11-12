@@ -2,6 +2,8 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
+Docs: [index](index.md) · [support matrix](device_support_matrix.md) · [common tasks](common_tasks.md) · [FAQ](faq.md)
+
 This quick guide helps you install, configure, and use the Ubisys integration in Home Assistant. It links directly to the relevant option flows and task‑focused docs for common scenarios.
 
 ## 1) Install the Integration
