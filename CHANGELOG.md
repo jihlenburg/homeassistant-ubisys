@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Options Flow: "About" menu step with links to docs/issues and device info.
+- Diagnostics: redacted config entry/device info, ZHA endpoints/clusters snapshot, last calibration results.
+- Logbook: friendly entries for `ubisys_input_event` and calibration completion.
+- Repairs: issues created when required clusters/quirks are missing.
+- Logging toggles: `verbose_info_logging` and `verbose_input_logging` in Options.
+- Local CI tooling: `scripts/run_ci_local.sh` and Makefile (`ci`, `fmt`, `lint`, `typecheck`, `test`).
+- GitHub Actions CI: hassfest/HACS, lint/type, and tests against HA 2024.1.*.
+
+### Changed
+- Quieter default logging; many INFO logs gated behind verbose toggles.
+- Calibration banners gated by verbose toggle; added persistent notifications for start/success/failure.
+- Documentation refreshed (README, logging policy, triggers examples, CLAUDE.md).
+
+### Fixed
+- button.py: cleaned up duplicate/odd `async_press` definitions; explicit calibration vs. health check buttons.
+
+### Reliability
+- helpers: `async_write_and_verify_attrs` now includes async timeouts and a limited retry.
+- helpers: new `async_zcl_command` wrapper for cluster commands with timeouts/retry; used in calibration.
+
 ## [1.2.0] - 2025-11-12
 
 ### Breaking Changes
