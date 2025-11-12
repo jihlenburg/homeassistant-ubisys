@@ -47,11 +47,18 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from .const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_IEEE,
+    CONF_INPUT_CONFIG_PRESET,
     CONF_SHADE_TYPE,
     CONF_ZHA_CONFIG_ENTRY_ID,
     DOMAIN,
     SHADE_TYPES,
     get_device_type,
+)
+from .input_config import (
+    InputActionBuilder,
+    InputConfigPreset,
+    InputConfigPresets,
+    async_apply_input_config,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -337,17 +344,22 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
 
     Allows changing device-specific options after initial configuration:
     - J1 (window covering): Change shade type
-    - D1 (dimmer): No options available (future: may add phase mode, ballast presets)
-    - Future devices: Device-specific options
+    - D1/D1-R (dimmer): Configure input behavior (toggle+dim, up/down, rocker)
+    - S1/S1-R (switch): Configure input behavior (toggle, rocker, etc.)
 
     Architecture Note:
-        The options shown depend on device type. Window covering devices show
-        shade type configuration, while other devices may show different options
-        or no options at all.
+        The options shown depend on device type. Each device type has
+        appropriate configuration options:
 
-        For D1 dimmers, configuration is done via services rather than options
-        flow because phase mode and ballast configuration are advanced settings
-        that shouldn't be changed frequently.
+        - Window covering: Shade type (affects feature filtering)
+        - Dimmer/Switch: Input configuration presets (affects physical button behavior)
+
+        Input configuration changes require writing InputActions micro-code to
+        the device, which is done via the input_config module with automatic
+        rollback on failure.
+
+        D1 phase mode and ballast configuration remain service-based because
+        they are advanced settings that shouldn't be changed as frequently.
     """
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
@@ -409,22 +421,144 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                 },
             )
 
-        elif device_type == "dimmer":
-            # D1 dimmers: Configuration is done via services
-            # Show informational message
-            return self.async_abort(
-                reason="no_options",
-                description_placeholders={
-                    "device_name": self.config_entry.data.get("name", "Ubisys Device"),
-                    "info": (
-                        "D1 dimmer configuration is done via services. "
-                        "Use the 'ubisys.configure_d1_phase_mode' and "
-                        "'ubisys.configure_d1_ballast' services to configure "
-                        "phase control mode and ballast settings."
-                    ),
-                },
-            )
+        elif device_type == "dimmer" or device_type == "switch":
+            # D1 dimmers and S1 switches: Show input configuration
+            return await self.async_step_input_config(user_input)
 
         else:
             # Unknown or unsupported device type
             return self.async_abort(reason="no_options")
+
+    async def async_step_input_config(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure physical input behavior.
+
+        This step allows users to select preset configurations for their
+        physical buttons/switches. The preset determines how button presses
+        are mapped to ZigBee commands.
+
+        Flow:
+            1. Show dropdown with available presets for device model
+            2. User selects preset
+            3. Generate InputActions micro-code from preset
+            4. Write micro-code to device (with automatic rollback on failure)
+            5. Save preset name in config entry for future reference
+
+        Error Handling:
+            - If device communication fails, show error and retry
+            - If verification fails, automatic rollback restores previous config
+            - User can cancel at any time (no changes applied)
+        """
+        errors: dict[str, str] = {}
+
+        model = self.config_entry.data.get("model", "")
+        device_ieee = self.config_entry.data.get(CONF_DEVICE_IEEE)
+        device_name = self.config_entry.data.get("name", "Device")
+
+        _LOGGER.debug(
+            "Input config step: model=%s, device_ieee=%s",
+            model,
+            device_ieee,
+        )
+
+        if user_input is not None:
+            # User selected a preset
+            preset_value = user_input[CONF_INPUT_CONFIG_PRESET]
+
+            try:
+                # Convert string value to enum
+                preset = InputConfigPreset(preset_value)
+
+                _LOGGER.info(
+                    "Applying input preset '%s' to %s (%s)",
+                    preset.value,
+                    device_name,
+                    model,
+                )
+
+                # Generate micro-code from preset
+                builder = InputActionBuilder()
+                actions = builder.build_preset(preset, model)
+                micro_code = b"".join(action.to_bytes() for action in actions)
+
+                _LOGGER.debug(
+                    "Generated %d bytes of micro-code from preset %s",
+                    len(micro_code),
+                    preset.value,
+                )
+
+                # Apply to device (with automatic rollback on failure)
+                await async_apply_input_config(
+                    self.hass,
+                    device_ieee,
+                    micro_code,
+                )
+
+                # Update config entry to remember the preset
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry,
+                    data={
+                        **self.config_entry.data,
+                        CONF_INPUT_CONFIG_PRESET: preset.value,
+                    },
+                )
+
+                _LOGGER.info(
+                    "✓ Successfully applied input preset '%s' to %s",
+                    preset.value,
+                    device_name,
+                )
+
+                return self.async_create_entry(title="", data={})
+
+            except ValueError as err:
+                _LOGGER.error("Invalid preset value: %s", preset_value)
+                errors["base"] = "invalid_preset"
+
+            except Exception as err:
+                _LOGGER.error(
+                    "Failed to apply input configuration: %s",
+                    err,
+                    exc_info=True,
+                )
+                errors["base"] = "config_write_failed"
+
+        # Get available presets for this device model
+        available_presets = InputConfigPresets.get_presets_for_model(model)
+
+        if not available_presets:
+            _LOGGER.warning("No presets available for model %s", model)
+            return self.async_abort(reason="no_presets")
+
+        # Build preset choices (preset_value -> "Name - Description")
+        preset_choices = {}
+        for preset in available_presets:
+            name, description = InputConfigPresets.get_preset_info(preset)
+            preset_choices[preset.value] = f"{name}"
+
+        # Get current preset (if configured)
+        current_preset = self.config_entry.data.get(CONF_INPUT_CONFIG_PRESET)
+        if current_preset and current_preset in preset_choices:
+            default_preset = current_preset
+        else:
+            # Default to first preset
+            default_preset = available_presets[0].value
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_INPUT_CONFIG_PRESET, default=default_preset
+                ): vol.In(preset_choices),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="input_config",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={
+                "device_name": device_name,
+                "model": model,
+            },
+        )

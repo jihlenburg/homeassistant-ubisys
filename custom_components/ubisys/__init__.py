@@ -6,22 +6,25 @@ manufacturer-specific features not exposed by standard ZHA integration.
 Device Support:
     - J1/J1-R: Window covering controllers with calibration support
     - D1/D1-R: Universal dimmers with phase control and ballast configuration
-    - S1/S2: Power switches (planned)
+    - S1/S1-R: Power switches with input configuration
+    - S2/S2-R: Power switches (planned)
 
 Architecture:
     This integration follows a multi-device architecture:
     - Device-specific modules (calibration.py for J1, d1_config.py for D1)
+    - Shared configuration (input_config.py for D1/S1 input configuration via UI)
     - Shared utilities (helpers.py for common operations)
     - Centralized constants (const.py for all device types)
 
 How It Works:
     1. Listens for ZHA device discovery via ZHA_DEVICE_ADDED signal
     2. Auto-triggers config flow for supported devices
-    3. Creates wrapper entities (covers for J1, lights for D1)
+    3. Creates wrapper entities (covers for J1, lights for D1, switches for S1)
     4. Hides original ZHA entities to prevent duplicates
     5. Registers device-specific services:
        - J1: calibrate_cover (calibration workflow)
-       - D1: configure_d1_phase_mode, configure_d1_ballast
+       - D1: configure_d1_phase_mode, configure_d1_ballast, configure_d1_inputs
+       - S1: Input configuration via Config Flow UI (Settings → Devices → Configure)
 
 Why Wrapper Entities:
     We create wrapper entities that delegate to ZHA because:
@@ -29,11 +32,14 @@ Why Wrapper Entities:
     - We add Ubisys-specific features and metadata
     - J1 needs feature filtering based on shade type
     - D1 needs device identification for configuration services
+    - S1/D1 input configuration managed via Config Flow UI
 
 See Also:
-    - calibration.py: J1-specific calibration logic
-    - d1_config.py: D1-specific configuration services
-    - helpers.py: Shared utilities for both device types
+    - j1_calibration.py: J1-specific calibration logic
+    - d1_config.py: D1-specific configuration services (phase mode, ballast, inputs)
+    - input_config.py: Shared D1/S1 input configuration micro-code generation
+    - config_flow.py: UI-based configuration for all devices
+    - helpers.py: Shared utilities for all device types
     - const.py: Device categorization and constants
 """
 
@@ -48,11 +54,15 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .calibration import async_calibrate_j1
+from .j1_calibration import async_calibrate_j1
 from .d1_config import (
     async_configure_ballast,
     async_configure_inputs,
     async_configure_phase_mode,
+)
+from .input_monitor import (
+    async_setup_input_monitoring,
+    async_unload_input_monitoring,
 )
 from .const import (
     DOMAIN,
@@ -90,6 +100,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     Service Registration:
         - J1 services: calibrate_cover (window covering calibration)
         - D1 services: configure_d1_phase_mode, configure_d1_ballast, configure_d1_inputs
+        - S1 services: configure_s1_input (physical switch input configuration)
 
     Why Register Services Here:
         Services are registered at integration level (not per-device) because:
@@ -100,7 +111,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     Discovery Setup:
         We wait until EVENT_HOMEASSISTANT_STARTED before setting up discovery
         to ensure ZHA integration is fully loaded and ready.
+
+    Service Registration Order:
+        Services are registered in device-type order (J1, D1, S1) for consistency
+        and easier debugging. The order doesn't affect functionality but helps
+        maintain code organization.
     """
+    # Initialize integration data storage
+    # This dictionary will hold per-device config entry data and shared resources
+    # like calibration locks and input monitors
     hass.data.setdefault(DOMAIN, {})
 
     # Register J1 calibration service
@@ -133,31 +152,61 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         async_configure_inputs,
     )
 
+    # Note: S1 input configuration is now done via Config Flow UI
+    # (Settings → Devices & Services → Ubisys → Configure)
+
     _LOGGER.info("Registered %d Ubisys services", 4)
 
-    # Set up discovery listener after Home Assistant starts
+    # Set up discovery listener and input monitoring after Home Assistant starts
+    # Why wait for EVENT_HOMEASSISTANT_STARTED?
+    # - ZHA integration must be fully initialized before we can:
+    #   1. Access ZHA signals (ZHA_DEVICE_ADDED)
+    #   2. Query ZHA gateway for device information
+    #   3. Subscribe to ZHA events for input monitoring
+    # - Setting up too early would cause errors or miss devices
+    # - This is a common pattern for integrations that depend on other integrations
     @callback
-    def setup_discovery(event):
-        """Set up discovery when Home Assistant starts."""
+    def async_setup_after_start(event):
+        """Set up discovery and input monitoring when Home Assistant starts."""
+        # Set up device discovery (listens for ZHA_DEVICE_ADDED signal)
         async_setup_discovery(hass)
 
-    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, setup_discovery)
+        # Set up input monitoring for all already-configured devices
+        # This handles devices that were configured before this startup
+        # (e.g., after a Home Assistant restart)
+        # Note: We create async tasks to avoid blocking startup
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            hass.async_create_task(
+                async_setup_input_monitoring(hass, entry.entry_id)
+            )
+
+    # Register the startup callback
+    # This ensures ZHA is ready before we try to interact with it
+    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, async_setup_after_start)
 
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Ubisys device from a config entry."""
+    """Set up Ubisys device from a config entry.
+
+    This is called when a device is discovered or configured manually.
+    It creates our wrapper entities and hides the underlying ZHA entities.
+    """
     _LOGGER.debug("Setting up Ubisys config entry: %s", entry.entry_id)
 
-    # Store entry data
+    # Store entry data in integration storage
+    # This makes device info (IEEE, model, etc.) accessible to platforms
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = entry.data
 
-    # Set up platforms
+    # Set up platforms (cover for J1, light for D1, button for calibration)
+    # This creates the actual entities that users interact with
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Hide the original ZHA entity to prevent duplicates
+    # We create wrapper entities that delegate to ZHA, so we hide ZHA's
+    # entities to avoid confusion (e.g., two "Bedroom Blind" entities)
     await _hide_zha_entity(hass, entry)
 
     return True
@@ -169,6 +218,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Unhide the original ZHA entity
     await _unhide_zha_entity(hass, entry)
+
+    # Unload input monitoring
+    await async_unload_input_monitoring(hass)
 
     # Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

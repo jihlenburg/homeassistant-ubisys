@@ -1,10 +1,10 @@
 # Ubisys Zigbee Devices for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![Version](https://img.shields.io/badge/version-1.1.1-blue.svg)](https://github.com/jihlenburg/homeassistant-ubisys)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/jihlenburg/homeassistant-ubisys)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A complete Home Assistant integration for Ubisys Zigbee window covering controllers, providing enhanced support with custom ZHA quirks, auto-discovery, smart feature filtering, and automated calibration.
+A complete Home Assistant integration for Ubisys Zigbee devices, providing enhanced support for window covering controllers (J1) and universal dimmers (D1) with custom ZHA quirks, auto-discovery, smart feature filtering, automated calibration, and manufacturer-specific configuration services.
 
 ---
 
@@ -65,21 +65,21 @@ This integration **filters controls** based on your actual shade type:
 
 | Device | Type | HA Platform | Status | Features |
 |--------|------|-------------|--------|----------|
-| **J1** | Window Covering Controller | `cover` | ✅ **Supported** | Position, Tilt, Calibration |
-| **J1-R** | Window Covering (DIN Rail) | `cover` | ✅ **Supported** | Position, Tilt, Calibration |
+| **J1** | Window Covering Controller | `cover` | ✅ **Fully Supported** | Position, Tilt, Calibration |
+| **J1-R** | Window Covering (DIN Rail) | `cover` | ✅ **Fully Supported** | Position, Tilt, Calibration |
+| **D1** | Universal Dimmer | `light` | ✅ **Supported** | Phase Control, Ballast Config |
+| **D1-R** | Universal Dimmer (DIN Rail) | `light` | ✅ **Supported** | Phase Control, Ballast Config |
 
 ### Roadmap (Planned)
 
-| Device | Type | HA Platform | Status |
-|--------|------|-------------|--------|
-| **S1** | Power Switch (16A) | `switch` | 📋 Planned |
-| **S1-R** | Power Switch (DIN Rail) | `switch` | 📋 Planned |
-| **S2** | Dual Power Switch (500W×2) | `switch` | 📋 Planned |
-| **S2-R** | Dual Power Switch (DIN Rail) | `switch` | 📋 Planned |
-| **D1** | Universal Dimmer | `light` | 📋 Planned |
-| **D1-R** | Universal Dimmer (DIN Rail) | `light` | 📋 Planned |
+| Device | Type | HA Platform | Status | Notes |
+|--------|------|-------------|--------|-------|
+| **S1** | Power Switch (16A) | `switch` | 📋 **Planned** | Config Flow UI exists, quirk/platform pending |
+| **S1-R** | Power Switch (DIN Rail) | `switch` | 📋 **Planned** | Config Flow UI exists, quirk/platform pending |
+| **S2** | Dual Power Switch (500W×2) | `switch` | 📋 **Planned** | Not yet started |
+| **S2-R** | Dual Power Switch (DIN Rail) | `switch` | 📋 **Planned** | Not yet started |
 
-> **Note:** This integration currently focuses on Ubisys window covering devices (J1/J1-R). Support for switches and dimmers is planned for future releases. See [Architecture Overview](docs/architecture_overview.md) for details on the extensible design.
+> **Note:** This integration fully supports Ubisys window covering devices (J1/J1-R) and universal dimmers (D1/D1-R). Switch support (S1/S2) is partially implemented (config flow UI ready) but requires quirk and platform completion. See [Known Limitations](#️-known-limitations--open-items) for details.
 
 ### J1/J1-R Shade Types
 
@@ -90,6 +90,82 @@ This integration **filters controls** based on your actual shade type:
 | Vertical Blind | Open, Close, Stop, Set Position | 0x04 |
 | Venetian Blind | Position + Tilt controls | 0x08 |
 | Exterior Venetian | Position + Tilt controls | 0x08 |
+
+## ⚠️ Known Limitations & Open Items
+
+### 🐛 Critical Issues
+
+- **`const.py` Service Name Bug** - Forward reference in backward compatibility alias may cause `NameError` (line 166)
+- **No Test Suite** - No automated testing infrastructure yet; changes may introduce regressions
+
+### 🚧 Device Support Gaps
+
+- **S1/S1-R Power Switch** - Listed as "Supported" but actually **PLANNED** (not yet implemented)
+  - No ZHA quirk created
+  - No switch platform support
+  - Input configuration UI mentioned in docs but incomplete
+- **S2/S2-R Dual Power Switch** - Planned but not implemented
+  - Not included in `SWITCH_MODELS` constant
+  - No platform or quirk support
+- **D1 Input Configuration Service** - Service `ubisys.configure_d1_inputs` registered but raises "Not yet implemented"
+  - Reason: Requires real D1 hardware testing to understand DeviceSetup cluster format
+  - Workaround: Default input configuration works for most users
+  - Status: Phase 3 feature blocked pending hardware testing
+
+### 🔬 Hardware Validation Needed
+
+The following features exist but **require real hardware testing** for validation:
+
+- **D1 Phase Mode Configuration** - Service works but needs validation with real device
+- **D1 Ballast Manufacturer Attributes** - May have undocumented manufacturer-specific attributes
+- **J1 Calibration** - Full 5-phase stall detection tested but needs more real-world validation
+
+### 📋 Planned Features (Roadmap)
+
+**Input Monitoring Enhancements:**
+- Event entities for button presses (show last press in dashboard)
+- Binary sensors for stationary rocker switches
+- Scene-only mode (buttons trigger automations without controlling device)
+
+**J1 Window Covering:**
+- Scene support for preset positions (save/recall specific positions)
+- Position offset configuration (adjust reporting to match physical reality)
+- Speed control configuration (adjust motor speed)
+- Web-based calibration wizard (interactive step-by-step guide)
+
+**Energy Monitoring:**
+- Energy metering dashboard for S1/D1 devices (leverage 0.5% accuracy power monitoring)
+- Integration with Home Assistant Energy dashboard
+
+**Developer Experience:**
+- Unit test suite (config flow, feature filtering, service validation)
+- Integration test suite (auto-discovery, entity creation, state sync)
+- Manual testing documentation (`docs/testing.md`)
+
+**Localization:**
+- Multi-language support (currently English only)
+
+### 📝 Documentation Gaps
+
+- **S2/S2-R Configuration Guide** - Blocked until device support implemented
+- **Manual Testing Procedures** - No structured testing checklist for contributors
+- **Translations** - No translation files for non-English languages
+
+### 💡 Architectural Notes
+
+- **J1 Unused Attributes** - Technical reference documents attributes `0x1003` (LiftToTiltTransitionSteps2) and `0x1004` (TotalSteps2) which are not currently used by integration (existing calibration approach works well)
+- **Button→Service Pattern** - Calibration button delegates to service for flexibility (both UI and automation access)
+- **Wrapper Entity Architecture** - Entities delegate to ZHA rather than talking directly to Zigbee (leverages ZHA's excellent communication layer)
+
+### 🔧 How You Can Help
+
+- **Hardware Testing**: If you have D1/D1-R devices, help validate phase mode and input configuration
+- **S1/S1-R/S2/S2-R Implementation**: Contribute switch platform support
+- **Test Suite**: Add unit and integration tests
+- **Documentation**: Translate to other languages, add testing guides
+- **Bug Reports**: File issues at https://github.com/jihlenburg/homeassistant-ubisys/issues
+
+---
 
 ## 📦 Installation
 
@@ -246,6 +322,80 @@ During calibration (60-120 seconds):
 - **Venetian Blinds**: 90-120 seconds
 
 Check logs for detailed calibration progress and results.
+
+## 💡 D1 Universal Dimmer Configuration
+
+The D1/D1-R universal dimmers require configuration to work optimally with different load types (incandescent, halogen, LED). This integration provides three configuration services:
+
+### Phase Control Mode Configuration
+
+Configure how the dimmer reduces voltage to the load (critical for LED compatibility):
+
+**Available Modes:**
+- `automatic` - Auto-detect load type (default, recommended starting point)
+- `forward` - Leading edge dimming (for incandescent, halogen)
+- `reverse` - Trailing edge dimming (for LED lamps)
+
+**Important:** The dimmer output MUST be OFF to change the phase mode.
+
+**Example:**
+```yaml
+# Turn off light first
+service: light.turn_off
+target:
+  entity_id: light.kitchen_dimmer
+
+# Configure phase mode
+service: ubisys.configure_d1_phase_mode
+data:
+  entity_id: light.kitchen_dimmer
+  phase_mode: reverse  # For LED lamps
+```
+
+### Ballast Configuration
+
+Fine-tune the minimum and maximum brightness levels to prevent LED flickering:
+
+**Example:**
+```yaml
+# Set minimum level to prevent flickering at low brightness
+service: ubisys.configure_d1_ballast
+data:
+  entity_id: light.kitchen_dimmer
+  min_level: 15      # Range: 1-254 (typical: 10-20 for LEDs)
+  max_level: 254     # Range: 1-254 (default: 254)
+```
+
+### When to Configure
+
+- **LEDs flickering at low brightness?** Try `phase_mode: reverse` and increase `min_level`
+- **Buzzing from dimmer/transformer?** Try switching between `forward` and `reverse` phase modes
+- **Limited dimming range?** Adjust `min_level` and try different phase modes
+- **New LED installation?** Start with `automatic` mode, adjust only if needed
+
+### Complete D1 Setup Example
+
+```yaml
+# 1. Turn off the light
+service: light.turn_off
+target:
+  entity_id: light.living_room_dimmer
+
+# 2. Configure phase mode for LED compatibility
+service: ubisys.configure_d1_phase_mode
+data:
+  entity_id: light.living_room_dimmer
+  phase_mode: reverse
+
+# 3. Set ballast levels to prevent flickering
+service: ubisys.configure_d1_ballast
+data:
+  entity_id: light.living_room_dimmer
+  min_level: 15
+  max_level: 254
+```
+
+For detailed configuration instructions, troubleshooting, and load type reference, see the [D1 Configuration Guide](docs/d1_configuration.md).
 
 ## 📖 Usage Examples
 
@@ -501,12 +651,16 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ### Device Support
 - [x] **J1** - Window covering controller ✅ v1.1.1
 - [x] **J1-R** - DIN rail variant ✅ v1.1.1
+- [x] **D1** - Universal dimmer ✅ v2.0.0
+- [x] **D1-R** - Universal dimmer (DIN rail) ✅ v2.0.0
 - [ ] **S1/S1-R** - Power switch (16A with energy metering)
 - [ ] **S2/S2-R** - Dual power switch (500W×2)
-- [ ] **D1/D1-R** - Universal dimmer
 
 ### Features
-- [ ] Energy metering dashboard (S1 devices)
+- [x] Phase control mode configuration (D1) ✅ v2.0.0
+- [x] Ballast configuration (D1) ✅ v2.0.0
+- [ ] Input configuration (D1) - Planned Phase 3
+- [ ] Energy metering dashboard (S1/D1 devices)
 - [ ] Scene support for preset positions (J1)
 - [ ] Position offset configuration (J1)
 - [ ] Speed control configuration (J1)
@@ -516,8 +670,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ### Documentation
 - [x] Architecture overview ✅ v1.1.1
 - [x] Window covering architecture ✅ v1.1.1
+- [x] D1 dimmer configuration guide ✅ v2.0.0
 - [ ] S1/S2 switch integration guide
-- [ ] D1 dimmer integration guide
 
 See [Architecture Overview](docs/architecture_overview.md) for detailed integration design and extensibility.
 

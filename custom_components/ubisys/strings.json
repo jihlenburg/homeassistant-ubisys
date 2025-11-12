@@ -28,12 +28,28 @@
   "options": {
     "step": {
       "init": {
-        "title": "Ubisys J1 Options",
-        "description": "Update the shade type for {device_name}. Changing this will reload the integration and update available features.",
+        "title": "Ubisys {model} Options",
+        "description": "Update configuration for {device_name}. Changing these settings will reload the integration and update device behavior.",
         "data": {
           "shade_type": "Shade Type"
         }
+      },
+      "input_config": {
+        "title": "Configure Physical Inputs",
+        "description": "Select how the physical buttons/switches on {device_name} should behave. This configures the device's InputActions and determines what commands are sent when you press buttons.",
+        "data": {
+          "input_config_preset": "Input Behavior"
+        }
       }
+    },
+    "error": {
+      "invalid_preset": "Invalid preset selected. Please try again.",
+      "config_write_failed": "Failed to write configuration to device. Ensure the device is powered on and connected to ZigBee network.",
+      "no_presets": "No configuration presets available for this device model."
+    },
+    "abort": {
+      "no_options": "No configuration options available for this device type.",
+      "no_presets": "No input configuration presets available for this device model."
     }
   },
   "selector": {
@@ -44,6 +60,17 @@
         "vertical": "Vertical Blind (position only)",
         "venetian": "Venetian Blind (position + tilt)",
         "exterior_venetian": "Exterior Venetian Blind (position + tilt)"
+      }
+    },
+    "input_config_preset": {
+      "options": {
+        "s1_toggle": "Toggle switch (default)",
+        "s1_on_only": "On when pressed",
+        "s1_off_only": "Off when pressed",
+        "s1_rocker": "On/Off button pair",
+        "d1_toggle_dim": "Toggle + Dim (default)",
+        "d1_up_down": "Separate up/down buttons",
+        "d1_rocker": "Rocker switch (continuous dimming)"
       }
     }
   },

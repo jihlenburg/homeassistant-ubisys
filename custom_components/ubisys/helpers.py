@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .const import DOMAIN, UBISYS_MANUFACTURER_CODE
 
@@ -46,6 +46,98 @@ if TYPE_CHECKING:
     from zigpy.zcl import Cluster
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# ==============================================================================
+# DEVICE REGISTRY UTILITIES
+# ==============================================================================
+# Simple utility functions for extracting information from device registry
+# entries. These are used by multiple modules to avoid code duplication.
+
+
+def extract_model_from_device(device: dr.DeviceEntry) -> str | None:
+    """Extract model string from device entry.
+
+    The device model field typically contains the model code followed by
+    hardware version in parentheses (e.g., "J1 (5502)", "D1-R (5603)").
+    This function extracts just the model code part.
+
+    Args:
+        device: Device registry entry
+
+    Returns:
+        Model string (e.g., "J1", "D1-R", "S1") or None if not found
+
+    Example:
+        >>> device.model = "J1 (5502)"
+        >>> extract_model_from_device(device)
+        "J1"
+        >>> device.model = "D1-R (5603)"
+        >>> extract_model_from_device(device)
+        "D1-R"
+
+    Why This is Shared:
+        Multiple modules need to extract model strings from device entries:
+        - device_trigger.py: Determine available triggers based on model
+        - input_monitor.py: Set up monitoring for devices with physical inputs
+        - config_flow.py: Validate device information during setup
+
+        Sharing prevents code duplication and ensures consistent parsing.
+    """
+    if not device.model:
+        return None
+
+    # Extract just the model code (e.g., "J1" from "J1 (5502)")
+    # Handle both "J1" and "J1-R" formats
+    model = device.model.split("(")[0].strip()
+    return model if model else None
+
+
+def extract_ieee_from_device(device: dr.DeviceEntry) -> str | None:
+    """Extract IEEE address from device entry.
+
+    The IEEE address uniquely identifies a Zigbee device and is stored
+    in the device's identifiers tuple with the "zha" domain prefix.
+
+    Args:
+        device: Device registry entry
+
+    Returns:
+        IEEE address string (e.g., "00:1f:ee:00:00:00:00:01") or None if not found
+
+    Example:
+        >>> device.identifiers = {("zha", "00:1f:ee:00:00:00:00:01")}
+        >>> extract_ieee_from_device(device)
+        "00:1f:ee:00:00:00:00:01"
+
+    Technical Details:
+        ZHA stores device identifiers as tuples in the format:
+        ("zha", "<ieee_address>")
+
+        This function searches through all identifiers to find the ZHA one
+        and extracts the IEEE address from the second element.
+
+    Why This is Shared:
+        Multiple modules need to extract IEEE addresses from device entries:
+        - device_trigger.py: Get device IEEE for event filtering
+        - input_monitor.py: Get device IEEE for ZHA cluster access
+        - config_flow.py: Validate device identity during setup
+
+        Sharing prevents code duplication and ensures consistent extraction.
+    """
+    # IEEE address is in device identifiers
+    for identifier in device.identifiers:
+        if identifier[0] == "zha":  # ZHA domain identifier
+            # Format: ("zha", "00:1f:ee:00:00:00:00:01")
+            if len(identifier) > 1:
+                return identifier[1]
+    return None
+
+
+# ==============================================================================
+# ZIGBEE CLUSTER ACCESS
+# ==============================================================================
+# Functions for accessing Zigbee clusters via ZHA integration
 
 
 async def get_cluster(
@@ -387,3 +479,51 @@ async def find_zha_entity_for_device(
             return entity_entry.entity_id
 
     return None
+
+
+async def get_device_setup_cluster(
+    hass: HomeAssistant,
+    device_ieee: str,
+) -> Cluster | None:
+    """Get the DeviceSetup cluster (0xFC00) from a Ubisys device.
+
+    This is a convenience wrapper around get_cluster() specifically for
+    accessing the DeviceSetup cluster which is used for input configuration
+    on all Ubisys devices (J1, D1, S1).
+
+    The DeviceSetup cluster is always located at endpoint 232 for all
+    Ubisys devices and provides access to:
+    - InputConfigurations (0x0000): Enable/disable/invert inputs
+    - InputActions (0x0001): Input behavior micro-code
+
+    Args:
+        hass: Home Assistant instance
+        device_ieee: Device IEEE address as string
+
+    Returns:
+        DeviceSetup cluster object, or None if not found
+
+    Example:
+        >>> cluster = await get_device_setup_cluster(hass, "00:12:4b:00:1c:a1:b2:c3")
+        >>> # Read InputActions
+        >>> result = await cluster.read_attributes(
+        ...     [0x0001],
+        ...     manufacturer=0x10F2
+        ... )
+        >>> input_actions_data = result[0][0x0001]
+
+    See Also:
+        - input_monitor.py: Uses this to read InputActions for event correlation
+        - s1_config.py: Uses this for S1 input configuration
+        - d1_config.py: Uses this for D1 input configuration
+    """
+    DEVICE_SETUP_ENDPOINT = 232
+    DEVICE_SETUP_CLUSTER_ID = 0xFC00
+
+    return await get_cluster(
+        hass,
+        device_ieee,
+        DEVICE_SETUP_CLUSTER_ID,
+        DEVICE_SETUP_ENDPOINT,
+        "DeviceSetup",
+    )

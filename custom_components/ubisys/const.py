@@ -36,6 +36,7 @@ CONF_SHADE_TYPE: Final = "shade_type"  # J1-specific
 CONF_PHASE_MODE: Final = "phase_mode"  # D1-specific
 CONF_BALLAST_MIN_LEVEL: Final = "ballast_min_level"  # D1-specific
 CONF_BALLAST_MAX_LEVEL: Final = "ballast_max_level"  # D1-specific
+CONF_INPUT_CONFIG_PRESET: Final = "input_config_preset"  # Input configuration preset (D1/S1)
 
 # ============================================================================
 # DEVICE MODEL CATEGORIZATION
@@ -48,14 +49,14 @@ WINDOW_COVERING_MODELS: Final = ["J1", "J1-R"]
 # Universal dimmers (support phase control, ballast config)
 DIMMER_MODELS: Final = ["D1", "D1-R"]
 
-# Power switches (future)
-SWITCH_MODELS: Final = ["S1", "S1-R", "S2", "S2-R"]
+# Power switches
+SWITCH_MODELS: Final = ["S1", "S1-R"]  # S2/S2-R support planned for future
 
 # All supported models
 SUPPORTED_MODELS: Final = (
     WINDOW_COVERING_MODELS
     + DIMMER_MODELS
-    # + SWITCH_MODELS  # Uncomment when implementing S1/S2
+    + SWITCH_MODELS
 )
 
 # Shade types
@@ -148,12 +149,19 @@ SETTLE_TIME: Final = 1.0                 # Wait 1s after stopping
 # Service parameters
 ATTR_ENTITY_ID: Final = "entity_id"
 
+# Input event attributes
+ATTR_COMMAND: Final = "command"
+ATTR_DEVICE_IEEE: Final = "device_ieee"
+ATTR_INPUT_NUMBER: Final = "input_number"
+ATTR_PRESS_TYPE: Final = "press_type"
+
 # Events
 EVENT_UBISYS_CALIBRATION_COMPLETE: Final = "ubisys_calibration_complete"
 EVENT_UBISYS_CALIBRATION_FAILED: Final = "ubisys_calibration_failed"
+EVENT_UBISYS_INPUT: Final = "ubisys_input_event"
 
-# Backward compatibility alias
-SERVICE_CALIBRATE: Final = SERVICE_CALIBRATE_J1  # Points to deprecated name
+# Dispatcher signals
+SIGNAL_INPUT_EVENT: Final = "ubisys_input_event"
 
 # Shade type to tilt steps mapping
 # These values determine how many motor steps are used for tilt operations
@@ -217,6 +225,7 @@ CLUSTER_ELECTRICAL_MEASUREMENT: Final = 0x0B04
 
 # Manufacturer-specific clusters (Ubisys)
 CLUSTER_DEVICE_SETUP: Final = 0xFC00  # Ubisys DeviceSetup cluster
+CLUSTER_DIMMER_SETUP: Final = 0xFC01  # Ubisys DimmerSetup cluster (D1 only)
 
 # Ballast cluster attributes (standard ZCL)
 BALLAST_ATTR_MIN_LEVEL: Final = 0x0011      # Minimum light level
@@ -227,10 +236,61 @@ BALLAST_ATTR_PHYSICAL_MIN_LEVEL: Final = 0x0000
 DEVICE_SETUP_ATTR_INPUT_CONFIGS: Final = 0x0000
 DEVICE_SETUP_ATTR_INPUT_ACTIONS: Final = 0x0001
 
+# Aliases for input monitoring (convenience)
+DEVICE_SETUP_CLUSTER_ID: Final = CLUSTER_DEVICE_SETUP
+INPUT_ACTIONS_ATTR_ID: Final = DEVICE_SETUP_ATTR_INPUT_ACTIONS
+
+# DimmerSetup cluster attributes (Ubisys manufacturer-specific, D1 only)
+DIMMER_SETUP_ATTR_MODE: Final = 0x0002  # Phase control mode attribute
+
 # Endpoint IDs for different devices
+#
+# Ubisys Endpoint Allocation Strategy:
+#
+# Ubisys uses a consistent endpoint allocation across their product line:
+# - EP1: Primary functionality (main on/off or dimming control)
+# - EP2-3: Physical input controller endpoints (send commands, not receive)
+# - EP4-5: Additional functionality (metering, secondary control)
+# - EP232: DeviceSetup cluster (common across all devices)
+# - EP242: Green Power (ZigBee Green Power proxy)
+#
+# Why Multiple Endpoints:
+#   Endpoints separate logical functions on a single physical device.
+#   This allows different parts of the device to:
+#   - Have different cluster configurations
+#   - Be bound independently to other devices
+#   - Operate without interfering with each other
+#
+# Example - D1 Dimmer:
+#   EP1: User-facing light control (ZHA creates light entity here)
+#   EP2-3: Physical switches send commands from these endpoints (controller)
+#   EP4: Advanced configuration (ballast, DeviceSetup - used by our integration)
+#   EP5: Power metering (energy monitoring)
+#   EP232: DeviceSetup (input configuration micro-code)
+#
+# Controller Endpoints (EP2-3):
+#   These are "client" endpoints that send commands (not receive).
+#   When a physical button is pressed:
+#   - Input 0 → sends command from EP2
+#   - Input 1 → sends command from EP3
+#   We monitor these endpoints to detect button presses.
+#
+# Why This Matters:
+#   - Calibration (J1): Must access EP2 for WindowCovering cluster
+#   - Phase mode (D1): DimmerSetup on EP1, Ballast on EP4 (different endpoints!)
+#   - Input config (all): DeviceSetup always on EP232
+#   - Input monitoring: Watch EP2-3 for controller commands
+#
+# Device-Specific Endpoint Maps:
+#
 J1_WINDOW_COVERING_ENDPOINT: Final = 2  # J1 WindowCovering cluster endpoint
-D1_DIMMER_ENDPOINT: Final = 4             # D1 dimmer control endpoint
-D1_METERING_ENDPOINT: Final = 5           # D1 power metering endpoint
+D1_DIMMABLE_LIGHT_ENDPOINT: Final = 1   # D1 Dimmable Light endpoint (DimmerSetup cluster here)
+D1_DIMMER_ENDPOINT: Final = 4           # D1 advanced control (Ballast, DeviceSetup)
+D1_METERING_ENDPOINT: Final = 5         # D1 power metering endpoint
+S1_ON_OFF_ENDPOINT: Final = 1           # S1 main on/off control endpoint
+S1_METERING_ENDPOINT: Final = 3         # S1 power metering (flush mount)
+S1R_METERING_ENDPOINT: Final = 4        # S1-R power metering (DIN rail - different from S1!)
+S1_DEVICE_SETUP_ENDPOINT: Final = 232   # S1/S1-R DeviceSetup cluster (common to all Ubisys)
 
 # ============================================================================
 # SERVICE NAMES
@@ -241,10 +301,17 @@ D1_METERING_ENDPOINT: Final = 5           # D1 power metering endpoint
 SERVICE_CALIBRATE_COVER: Final = "calibrate_cover"     # New generic name
 SERVICE_CALIBRATE_J1: Final = "calibrate_j1"           # Deprecated alias
 
+# Backward compatibility alias (for older code that used SERVICE_CALIBRATE)
+SERVICE_CALIBRATE: Final = SERVICE_CALIBRATE_J1  # Points to deprecated name
+
 # Dimmer services (D1)
 SERVICE_CONFIGURE_D1_PHASE_MODE: Final = "configure_d1_phase_mode"
 SERVICE_CONFIGURE_D1_BALLAST: Final = "configure_d1_ballast"
 SERVICE_CONFIGURE_D1_INPUTS: Final = "configure_d1_inputs"
+
+# Switch configuration (S1/S1-R)
+# Input configuration is now done via Config Flow UI (Settings → Devices → Configure)
+# No services required - preset-based configuration with automatic rollback
 
 # ============================================================================
 # HELPER FUNCTIONS

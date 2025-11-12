@@ -218,3 +218,12 @@ configure_d1_inputs:
       required: false
       selector:
         text:
+
+# =============================================================================
+# S1 SWITCH CONFIGURATION
+# =============================================================================
+# S1/S1-R input configuration is now done via Config Flow UI:
+# Settings → Devices & Services → Ubisys → Select Device → Configure
+#
+# This provides preset-based configuration with automatic rollback on failure.
+# The old configure_s1_input service has been removed in v2.1.0.

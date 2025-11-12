@@ -4,24 +4,63 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Home Assistant custom integration for Ubisys Zigbee window covering controllers (J1 model). The integration has three main components:
+This is a Home Assistant custom integration for Ubisys Zigbee devices supporting J1 (window covering), D1 (universal dimmer), and S1 (power switch) devices. The integration follows a multi-device architecture with shared components.
 
 1. **Custom Integration** (`custom_components/ubisys/`)
-   - Cover platform (`cover.py`) - Wrapper entity with feature filtering
-   - Button platform (`button.py`) - Calibration button for easy UI access
-   - Calibration module (`calibration.py`) - 5-phase automated calibration with stall detection
-   - Config flow (`config_flow.py`) - UI-based setup with auto-discovery
-   - Constants (`const.py`) - Shade type mappings and feature definitions
+   - **Platforms**:
+     - Cover platform (`cover.py`) - Wrapper entity with feature filtering for J1
+     - Light platform (`light.py`) - Wrapper entity for D1
+     - Button platform (`button.py`) - Calibration button for J1
+   - **Device-Specific Modules**:
+     - J1 calibration (`j1_calibration.py`) - 5-phase automated calibration with stall detection
+     - D1 configuration (`d1_config.py`) - Phase mode, ballast, and input configuration
+   - **Shared Modules**:
+     - Helpers (`helpers.py`) - Shared utility functions (device info extraction, cluster access)
+     - Input configuration (`input_config.py`) - Shared D1/S1 input configuration micro-code generation
+     - Input monitoring (`input_monitor.py`) - Physical input event monitoring for all devices
+     - Device triggers (`device_trigger.py`) - Button press automation triggers
+   - **Core**:
+     - Config flow (`config_flow.py`) - UI-based setup with auto-discovery
+     - Constants (`const.py`) - Device categorization, endpoint maps, and constants
 
-2. **ZHA Quirk** (`custom_zha_quirks/ubisys_j1.py`) - Extends ZHA with Ubisys manufacturer-specific attributes
+2. **ZHA Quirks** (`custom_zha_quirks/`)
+   - `ubisys_j1.py` - J1 WindowCovering cluster with manufacturer attributes
+   - `ubisys_d1.py` - D1 Ballast, DimmerSetup, and DeviceSetup clusters
+   - `ubisys_s1.py` - S1/S1-R DeviceSetup cluster
+   - `ubisys_common.py` - Shared DeviceSetup cluster and constants (DRY principle)
 
 **Key Features:**
-- Auto-discovery of J1 devices paired with ZHA (v1.1+)
-- Smart feature filtering based on configured shade type
-- One-click calibration via button entity or service
-- Motor stall detection for reliable limit finding
-- Per-device locking prevents concurrent calibrations
+- Auto-discovery of all Ubisys devices paired with ZHA
+- J1: Smart feature filtering based on configured shade type
+- J1: One-click calibration via button entity or service
+- D1: Phase control mode, ballast configuration via services
+- S1/S1-R: UI-based input configuration with automatic rollback
+- Physical input monitoring and device triggers for automations
 - Comprehensive logging with phase-based structure
+
+**Architecture Principles (v2.1.0+):**
+- **DRY (Don't Repeat Yourself)**: Shared components extracted to common modules
+- **Separation of Concerns**: Device-specific logic in dedicated modules
+- **Shared-First**: Helper functions and quirk clusters shared across devices
+- **Well-Documented**: Comprehensive inline comments explaining WHY, not just WHAT
+
+## Technical Reference Documentation
+
+The `docs/ubisys/` directory contains official Ubisys technical reference manuals for current and upcoming devices:
+
+- **J1/J1-R** - ZigBee Window Covering/Shutter Control (currently implemented)
+- **S1/S1-R** - ZigBee Power Switch with smart meter (planned)
+- **D1/D1-R** - ZigBee Universal Dimmer with smart meter (planned)
+
+These manuals provide detailed specifications including:
+- ZigBee cluster definitions and manufacturer-specific attributes
+- Calibration procedures and device configuration
+- Endpoint structures and supported commands
+- Hardware specifications and compliance information
+
+**Manufacturer ID:** 0x10F2 (all Ubisys devices)
+
+Refer to these documents when implementing support for new devices or working with device-specific features.
 
 ## Architecture
 
@@ -58,7 +97,7 @@ This allows the rest of the integration to access these attributes without speci
 
 ### Calibration Architecture (v1.1+)
 
-The calibration module (`calibration.py`) implements a **5-phase automated calibration** using **motor stall detection**:
+The J1 calibration module (`j1_calibration.py`) implements a **5-phase automated calibration** using **motor stall detection**:
 
 **Phase 1: Preparation**
 - Enter calibration mode (mode=0x02)
@@ -96,6 +135,169 @@ The calibration module (`calibration.py`) implements a **5-phase automated calib
 3. **Direct Cluster Commands**: Uses cluster.command() for up_open/down_close (not HA services) because we need low-level control and timeout handling.
 
 4. **Concurrency Control**: asyncio.Lock per device prevents race conditions from simultaneous calibrations.
+
+### Input Monitoring Architecture (v2.0+)
+
+The input monitoring system detects physical button presses on Ubisys devices and exposes them to Home Assistant for automation triggers.
+
+**Architecture Overview:**
+
+```
+Physical Input Press → ZigBee Command → ZHA Event → Input Monitor → Correlation → Home Assistant Event/Trigger
+```
+
+**Key Components:**
+
+1. **input_parser.py** - Parses InputActions micro-code
+   - `InputActionsParser`: Parses binary InputActions attribute (0xFC00:0x0001)
+   - `InputActionRegistry`: Correlates observed commands with inputs/press types
+   - `PressType` enum: pressed, released, short_press, long_press, double_press
+
+2. **input_monitor.py** - Monitors ZHA events and fires HA events
+   - `UbisysInputMonitor`: One monitor instance per device
+   - Subscribes to `zha_event` bus for commands from controller endpoints
+   - Correlates observed commands using InputActionRegistry
+   - Fires `ubisys_input_event` and dispatcher signals
+
+3. **Integration Lifecycle** (__init__.py)
+   - `async_setup_input_monitoring()` called after HA starts
+   - Monitors initialized for all Ubisys devices
+   - `async_unload_input_monitoring()` during integration unload
+
+**Controller Endpoints:**
+- **J1**: Endpoint 2 (Window Covering Controller)
+- **D1**: Endpoints 2, 3 (Primary/Secondary Dimmer Switch)
+- **S1**: Endpoint 2 (Level Control Switch)
+- **S1-R**: Endpoints 2, 3 (Primary/Secondary Level Control Switch)
+
+**Command Correlation Algorithm:**
+
+1. Read InputActions from DeviceSetup cluster (0xFC00:0x0001)
+2. Parse micro-code to build mapping: `{(endpoint, cluster, command, payload) → (input_num, press_type)}`
+3. Subscribe to ZHA events from controller endpoints
+4. When command observed, look up in mapping to determine which input and press type
+5. Fire Home Assistant events with context: `device_id, input_number, press_type, command_info`
+
+**Event Flow:**
+
+```
+Physical Button Press
+    ↓
+Device executes InputActions micro-code
+    ↓
+Device sends ZigBee command from controller endpoint (ep2/ep3)
+    ↓
+ZHA receives command and fires zha_event
+    ↓
+UbisysInputMonitor handles zha_event
+    ↓
+Correlates command signature with InputActions mapping
+    ↓
+Fires ubisys_input_event (bus event)
+    ↓
+Fires dispatcher signal (for device triggers and event entities)
+    ↓
+User automations triggered
+```
+
+**Design Decisions:**
+
+1. **Observation, Not Replacement**: We observe commands sent from controller endpoints rather than replacing the device behavior. Local control (physical button → device action) continues to work normally.
+
+2. **ZHA Event Bus**: We use ZHA's existing event infrastructure rather than low-level ZigBee monitoring. This is non-invasive and leverages ZHA's reliable command handling.
+
+3. **Command Correlation**: InputActions parsing allows us to determine which physical input and press type triggered a command, enabling precise automation triggers (e.g., "input 1 long press" vs "input 2 short press").
+
+4. **Shared Architecture**: All three device types (J1, D1, S1) use the same InputActions format and monitoring infrastructure, maximizing code reuse.
+
+### Device Trigger Architecture (v2.0+ Phase 3)
+
+Device triggers expose physical button presses as automation triggers in the Home Assistant UI, making them user-friendly and discoverable.
+
+**Architecture Overview:**
+
+```
+User selects trigger in UI
+    ↓
+HA calls async_attach_trigger()
+    ↓
+Subscribe to dispatcher signal from input_monitor
+    ↓
+Physical button press fires input event
+    ↓
+input_monitor fires dispatcher signal
+    ↓
+Receive event, check if matches trigger
+    ↓
+Call trigger action if match
+    ↓
+User's automation runs
+```
+
+**Key Components:**
+
+1. **device_trigger.py** - Home Assistant device automation integration
+   - `async_get_triggers()`: Returns available triggers for a device
+   - `async_attach_trigger()`: Attaches listener for trigger events
+   - `PRESS_TYPE_TO_TRIGGER`: Maps (input_num, press_type) to trigger type
+   - `DEVICE_TRIGGERS`: Defines available triggers per device model
+
+2. **Trigger Types Per Device:**
+   - **J1**: 8 triggers (2 inputs × 4 press types)
+   - **D1**: 8 triggers (2 inputs × 4 press types)
+   - **S1**: 4 triggers (1 input × 4 press types)
+   - **S1-R**: 8 triggers (2 inputs × 4 press types)
+
+3. **Press Types:**
+   - `button_N_pressed`: Button pressed (start of press)
+   - `button_N_released`: Button released
+   - `button_N_short_press`: Complete short press (<1s)
+   - `button_N_long_press`: Button kept pressed (>1s)
+
+**Integration with Home Assistant:**
+
+Device triggers are automatically discovered by Home Assistant when `device_trigger.py` exists in the integration. No registration needed in `__init__.py` or `PLATFORMS` list.
+
+**User Experience:**
+
+Users create automations via UI:
+1. Trigger type: Device
+2. Device: [Select Ubisys device]
+3. Trigger: [Select "Button 1 short press"]
+
+No YAML or event knowledge required!
+
+**Trigger Context:**
+
+When trigger fires, automation receives context:
+```python
+{
+    "trigger": {
+        "platform": "device",
+        "domain": "ubisys",
+        "device_id": "abc123",
+        "type": "button_1_short_press",
+        "input_number": 0,  # 0-based
+        "press_type": "short_press",
+        "description": "Button 1 short press"
+    }
+}
+```
+
+**Design Decisions:**
+
+1. **User-Friendly Names**: Button numbers are 1-based in UI (button_1, button_2) but 0-based internally (input_number=0,1) to match user expectations.
+
+2. **Dispatcher Integration**: Uses dispatcher signals from input_monitor rather than bus events for better performance and type safety.
+
+3. **Model-Specific Triggers**: Each device model has different number of inputs, so triggers are defined per model in `DEVICE_TRIGGERS` dictionary.
+
+4. **Complete Context**: Trigger context includes both user-friendly names and technical details for advanced templating.
+
+**Future Enhancements:**
+- Event entities (Phase 4): Show last button press in dashboard with history
+- Binary sensors (Phase 5): For stationary rocker switches with persistent state
+- Configuration UI (Phase 6): Reconfigure InputActions via UI instead of service calls
 
 ## Code Quality Standards
 

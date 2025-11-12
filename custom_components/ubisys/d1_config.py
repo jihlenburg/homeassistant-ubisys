@@ -60,9 +60,12 @@ from .const import (
     BALLAST_LEVEL_MIN,
     CLUSTER_BALLAST,
     CLUSTER_DEVICE_SETUP,
+    CLUSTER_DIMMER_SETUP,
+    D1_DIMMABLE_LIGHT_ENDPOINT,
     D1_DIMMER_ENDPOINT,
     DEVICE_SETUP_ATTR_INPUT_ACTIONS,
     DEVICE_SETUP_ATTR_INPUT_CONFIGS,
+    DIMMER_SETUP_ATTR_MODE,
     PHASE_MODE_AUTOMATIC,
     PHASE_MODE_FORWARD,
     PHASE_MODE_NAMES,
@@ -181,73 +184,80 @@ async def async_configure_phase_mode(
         )
     _LOGGER.debug("D1 Config: ✓ Model verification passed")
 
-    # Step 5: Access Ballast cluster
-    # Note: Phase control mode location TBD via testing with real device.
-    # It may be in Ballast cluster or DeviceSetup cluster.
+    # Step 5: Access DimmerSetup cluster (0xFC01) on endpoint 1
+    # According to D1 Technical Reference Section 7.2.8:
+    # - Cluster ID: 0xFC01 (DimmerSetup, manufacturer-specific)
+    # - Endpoint: 1 (Dimmable Light endpoint)
+    # - Attribute: 0x0002 (Mode)
+    # - Manufacturer Code: 0x10F2 (required)
     cluster = await get_cluster(
         hass,
         device_ieee,
-        CLUSTER_BALLAST,
-        D1_DIMMER_ENDPOINT,
-        "Ballast",
+        CLUSTER_DIMMER_SETUP,
+        D1_DIMMABLE_LIGHT_ENDPOINT,
+        "DimmerSetup",
     )
 
     if not cluster:
         raise HomeAssistantError(
-            f"Could not access Ballast cluster for {entity_id}. "
+            f"Could not access DimmerSetup cluster for {entity_id}. "
             f"Ensure the device is online and the D1 quirk is loaded."
         )
-    _LOGGER.debug("D1 Config: ✓ Ballast cluster accessed")
+    _LOGGER.debug("D1 Config: ✓ DimmerSetup cluster accessed")
 
     # Step 6: Write phase control mode
-    # TODO: Replace placeholder attribute ID with actual ID from device testing
-    # Possible locations:
-    # - Ballast cluster manufacturer-specific attribute (likely 0x4000+ range)
-    # - DeviceSetup cluster attribute
-    #
-    # For now, this is a placeholder implementation that logs what would be written.
-    # Once we have a real D1 device, we can:
-    # 1. Use ZHA diagnostics to inspect cluster attributes
-    # 2. Compare with Zigbee2MQTT/deCONZ implementations
-    # 3. Test different attribute IDs to find the correct one
-
-    _LOGGER.warning(
-        "D1 Config: Phase control mode configuration is not yet implemented. "
-        "This requires testing with a real D1 device to determine the correct "
-        "attribute ID. Placeholder implementation active."
-    )
-
+    # IMPORTANT: According to D1 technical reference, the Mode attribute
+    # is only writable when the output is OFF. If the light is currently ON,
+    # the write will fail. The service should be called when light is off.
     _LOGGER.info(
-        "D1 Config: Would configure phase mode for %s: %s (%d)",
+        "D1 Config: Configuring phase mode for %s: %s (%d)",
         entity_id,
         phase_mode,
         phase_mode_value,
     )
 
-    # When implementation is complete, this will be:
-    # try:
-    #     result = await cluster.write_attributes(
-    #         {PHASE_MODE_ATTR: phase_mode_value},
-    #         manufacturer=UBISYS_MANUFACTURER_CODE,
-    #     )
-    #     _LOGGER.debug("D1 Config: Write result: %s", result)
-    #
-    #     # Check if write succeeded
-    #     if result and result[0].status != 0:
-    #         raise HomeAssistantError(
-    #             f"Failed to write phase mode: status={result[0].status}"
-    #         )
-    #
-    #     _LOGGER.info(
-    #         "D1 Config: ✓ Successfully configured phase mode: %s -> %s",
-    #         entity_id,
-    #         phase_mode,
-    #     )
-    # except Exception as err:
-    #     _LOGGER.error("D1 Config: Failed to write phase mode: %s", err)
-    #     raise HomeAssistantError(
-    #         f"Failed to configure phase mode for {entity_id}: {err}"
-    #     ) from err
+    try:
+        # Write the Mode attribute with manufacturer code
+        # The quirk will automatically inject the manufacturer code (0x10F2)
+        result = await cluster.write_attributes(
+            {DIMMER_SETUP_ATTR_MODE: phase_mode_value},
+            manufacturer=UBISYS_MANUFACTURER_CODE,
+        )
+        _LOGGER.debug("D1 Config: Write result: %s", result)
+
+        # Check if write succeeded
+        # Note: result is a list of WriteAttributesResponse objects
+        if result and result[0].status != 0:
+            status_code = result[0].status
+            error_msg = f"Failed to write phase mode: status={status_code}"
+
+            # Provide helpful error message if write failed
+            if status_code == 0x87:  # INVALID_VALUE
+                error_msg += (
+                    " (Invalid value - ensure output is OFF before changing mode)"
+                )
+            elif status_code == 0x88:  # READ_ONLY
+                error_msg += (
+                    " (Attribute is read-only - ensure output is OFF)"
+                )
+
+            _LOGGER.error("D1 Config: %s", error_msg)
+            raise HomeAssistantError(error_msg)
+
+        _LOGGER.info(
+            "D1 Config: ✓ Successfully configured phase mode: %s -> %s",
+            entity_id,
+            phase_mode,
+        )
+
+    except HomeAssistantError:
+        # Re-raise HomeAssistantError as-is (already formatted)
+        raise
+    except Exception as err:
+        _LOGGER.error("D1 Config: Failed to write phase mode: %s", err)
+        raise HomeAssistantError(
+            f"Failed to configure phase mode for {entity_id}: {err}"
+        ) from err
 
 
 async def async_configure_ballast(

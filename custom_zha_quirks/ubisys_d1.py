@@ -73,7 +73,6 @@ from zigpy.zcl.clusters.homeautomation import ElectricalMeasurement
 from zigpy.zcl.clusters.lighting import Ballast
 from zigpy.zcl.clusters.smartenergy import Metering
 from zigpy.zcl.foundation import ZCLAttributeDef
-from zigpy.types import CharacterString
 
 from zhaquirks.const import (
     DEVICE_TYPE,
@@ -84,17 +83,22 @@ from zhaquirks.const import (
     PROFILE_ID,
 )
 
+# Import shared Ubisys components
+from custom_zha_quirks.ubisys_common import (
+    UBISYS_ATTR_INPUT_ACTIONS,
+    UBISYS_ATTR_INPUT_CONFIGS,
+    UBISYS_DEVICE_SETUP_CLUSTER_ID,
+    UBISYS_MANUFACTURER_CODE,
+    UbisysDeviceSetup,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
-# Ubisys manufacturer code
-UBISYS_MANUFACTURER_CODE: Final[int] = 0x10F2
+# DimmerSetup cluster ID (manufacturer-specific, D1 only)
+UBISYS_DIMMER_SETUP_CLUSTER_ID: Final[int] = 0xFC01
 
-# DeviceSetup cluster ID (manufacturer-specific)
-UBISYS_DEVICE_SETUP_CLUSTER_ID: Final[int] = 0xFC00
-
-# DeviceSetup cluster attribute IDs
-UBISYS_ATTR_INPUT_CONFIGS: Final[int] = 0x0000
-UBISYS_ATTR_INPUT_ACTIONS: Final[int] = 0x0001
+# DimmerSetup cluster attribute IDs
+UBISYS_ATTR_DIMMER_MODE: Final[int] = 0x0002
 
 
 class UbisysBallastConfiguration(CustomCluster, Ballast):
@@ -214,51 +218,58 @@ class UbisysBallastConfiguration(CustomCluster, Ballast):
         return result
 
 
-class UbisysDeviceSetup(CustomCluster):
-    """Ubisys DeviceSetup cluster (0xFC00) for physical input configuration.
+class UbisysDimmerSetup(CustomCluster):
+    """Ubisys DimmerSetup cluster (0xFC01) for phase control mode configuration.
 
-    This is a manufacturer-specific cluster unique to Ubisys devices. It allows
-    configuration of physical switch inputs (e.g., wall switches connected to
-    the dimmer).
+    This is a manufacturer-specific cluster unique to Ubisys D1 dimmers. It allows
+    configuration of the phase control mode, which is critical for proper dimming
+    behavior with different load types.
 
-    Cluster ID: 0xFC00
+    Cluster ID: 0xFC01
     Manufacturer Code: 0x10F2 (required for all operations)
+    Endpoint: 1 (Dimmable Light endpoint)
 
     Attributes:
-        - input_configurations (0x0000): Configure input types
-          (momentary/stationary/decoupled)
-        - input_actions (0x0001): Configure input behaviors
+        - mode (0x0002): Phase control mode
+          - 0x00: Automatic (auto-detect load type) - DEFAULT
+          - 0x01: Forward phase control (leading edge, for resistive/inductive)
+          - 0x02: Reverse phase control (trailing edge, for capacitive/LED)
+          - 0x03: Reserved (do not use)
+
+    Safety Warning:
+        Configuring the wrong phase control mode can damage the dimmer or connected
+        loads. Always start with automatic mode. Only change if experiencing issues.
+
+    Technical Details:
+        - Attribute is persistent (survives reboots)
+        - Preserved across normal factory resets (since firmware 1.14)
+        - Only writable when output is OFF
+        - Bits [1:0] control phase mode, bits [7:2] reserved
 
     Usage:
-        This cluster is used to configure how physical switches interact with
-        the dimmer. For example:
-        - Momentary switches (push buttons) vs toggle switches
-        - Decoupled mode (physical switch controls Zigbee bindings, not local output)
+        This cluster is used by the D1 phase mode configuration service to:
+        - Auto-detect appropriate dimming technique (automatic mode)
+        - Force leading edge dimming for TRIAC-compatible loads (forward mode)
+        - Force trailing edge dimming for LED/CFL loads (reverse mode)
 
     Important:
         ALL operations on this cluster require the Ubisys manufacturer code (0x10F2).
         This cluster automatically injects it for all read/write operations.
 
     See Also:
-        - Ubisys D1 Technical Reference Manual (section on DeviceSetup cluster)
+        - Ubisys D1 Technical Reference Manual (section 7.2.8)
         - custom_components/ubisys/d1_config.py (uses this cluster)
     """
 
-    cluster_id = UBISYS_DEVICE_SETUP_CLUSTER_ID
-    ep_attribute = "ubisys_device_setup"
+    cluster_id = UBISYS_DIMMER_SETUP_CLUSTER_ID
+    ep_attribute = "ubisys_dimmer_setup"
 
     # Define manufacturer-specific attributes
     attributes = {
-        UBISYS_ATTR_INPUT_CONFIGS: ZCLAttributeDef(
-            id=UBISYS_ATTR_INPUT_CONFIGS,
-            name="input_configurations",
-            type=CharacterString,
-            is_manufacturer_specific=True,
-        ),
-        UBISYS_ATTR_INPUT_ACTIONS: ZCLAttributeDef(
-            id=UBISYS_ATTR_INPUT_ACTIONS,
-            name="input_actions",
-            type=CharacterString,
+        UBISYS_ATTR_DIMMER_MODE: ZCLAttributeDef(
+            id=UBISYS_ATTR_DIMMER_MODE,
+            name="mode",
+            type=foundation.DATA_TYPES.bitmap8,
             is_manufacturer_specific=True,
         ),
     }
@@ -270,7 +281,7 @@ class UbisysDeviceSetup(CustomCluster):
         only_cache: bool = False,
         manufacturer: Optional[int] = None,
     ) -> dict[int | str, Any]:
-        """Read DeviceSetup attributes with automatic manufacturer code injection.
+        """Read DimmerSetup attributes with automatic manufacturer code injection.
 
         ALL operations on this cluster require manufacturer code 0x10F2.
         This method automatically injects it.
@@ -285,19 +296,18 @@ class UbisysDeviceSetup(CustomCluster):
             Dictionary mapping attribute IDs/names to values
 
         Logging:
-            INFO: Logs manufacturer code injection (first time)
-            DEBUG: Logs all subsequent operations
+            DEBUG: Logs manufacturer code injection and all operations
         """
         # ALWAYS inject Ubisys manufacturer code for this cluster
         if manufacturer is None:
             manufacturer = UBISYS_MANUFACTURER_CODE
             _LOGGER.debug(
-                "D1 DeviceSetup: Auto-injecting manufacturer code 0x%04X for read",
+                "D1 DimmerSetup: Auto-injecting manufacturer code 0x%04X for read",
                 UBISYS_MANUFACTURER_CODE,
             )
 
         _LOGGER.debug(
-            "D1 DeviceSetup: Reading attributes %s",
+            "D1 DimmerSetup: Reading attributes %s",
             attributes,
         )
 
@@ -305,7 +315,7 @@ class UbisysDeviceSetup(CustomCluster):
             attributes, allow_cache, only_cache, manufacturer
         )
 
-        _LOGGER.debug("D1 DeviceSetup: Read result: %s", result)
+        _LOGGER.debug("D1 DimmerSetup: Read result: %s", result)
         return result
 
     async def write_attributes(
@@ -313,10 +323,14 @@ class UbisysDeviceSetup(CustomCluster):
         attributes: dict[str | int, Any],
         manufacturer: Optional[int] = None,
     ) -> list[foundation.WriteAttributesResponse]:
-        """Write DeviceSetup attributes with automatic manufacturer code injection.
+        """Write DimmerSetup attributes with automatic manufacturer code injection.
 
         ALL operations on this cluster require manufacturer code 0x10F2.
         This method automatically injects it.
+
+        IMPORTANT: According to D1 technical reference, the Mode attribute
+        is only writable when the output is OFF. Attempting to write when
+        the light is ON will fail.
 
         Args:
             attributes: Dictionary mapping attribute names/IDs to values
@@ -326,26 +340,25 @@ class UbisysDeviceSetup(CustomCluster):
             List of write attribute responses
 
         Logging:
-            INFO: Logs manufacturer code injection (first time)
-            DEBUG: Logs all subsequent operations
+            DEBUG: Logs manufacturer code injection and all operations
             WARNING: Logs if write fails
         """
         # ALWAYS inject Ubisys manufacturer code for this cluster
         if manufacturer is None:
             manufacturer = UBISYS_MANUFACTURER_CODE
             _LOGGER.debug(
-                "D1 DeviceSetup: Auto-injecting manufacturer code 0x%04X for write",
+                "D1 DimmerSetup: Auto-injecting manufacturer code 0x%04X for write",
                 UBISYS_MANUFACTURER_CODE,
             )
 
         _LOGGER.debug(
-            "D1 DeviceSetup: Writing attributes %s",
+            "D1 DimmerSetup: Writing attributes %s",
             attributes,
         )
 
         result = await super().write_attributes(attributes, manufacturer)
 
-        _LOGGER.debug("D1 DeviceSetup: Write result: %s", result)
+        _LOGGER.debug("D1 DimmerSetup: Write result: %s", result)
         return result
 
 
@@ -386,10 +399,10 @@ class UbisysD1(CustomDevice):
             ("ubisys", "D1-R"),    # DIN rail variant
         ],
         ENDPOINTS: {
-            # Endpoint 1: Basic configuration and control
+            # Endpoint 1: Dimmable Light with phase control
             1: {
                 PROFILE_ID: 0x0104,  # Zigbee Home Automation
-                DEVICE_TYPE: 0x0104,  # Dimmer Switch
+                DEVICE_TYPE: 0x0101,  # Dimmable Light
                 INPUT_CLUSTERS: [
                     0x0000,  # Basic
                     0x0003,  # Identify
@@ -397,6 +410,8 @@ class UbisysD1(CustomDevice):
                     0x0005,  # Scenes
                     0x0006,  # On/Off
                     0x0008,  # Level Control
+                    0x0301,  # Ballast Configuration
+                    0xFC01,  # Ubisys DimmerSetup (manufacturer-specific)
                 ],
                 OUTPUT_CLUSTERS: [
                     0x0019,  # OTA Upgrade
@@ -432,10 +447,10 @@ class UbisysD1(CustomDevice):
 
     replacement = {
         ENDPOINTS: {
-            # Endpoint 1: Keep standard (no modifications needed)
+            # Endpoint 1: Dimmable Light with phase control
             1: {
                 PROFILE_ID: 0x0104,
-                DEVICE_TYPE: 0x0104,
+                DEVICE_TYPE: 0x0101,  # Dimmable Light
                 INPUT_CLUSTERS: [
                     Basic.cluster_id,
                     Identify.cluster_id,
@@ -443,6 +458,8 @@ class UbisysD1(CustomDevice):
                     0x0005,  # Scenes
                     OnOff.cluster_id,
                     LevelControl.cluster_id,
+                    UbisysBallastConfiguration,  # Enhanced ballast cluster
+                    UbisysDimmerSetup,            # Manufacturer-specific phase control
                 ],
                 OUTPUT_CLUSTERS: [
                     0x0019,  # OTA
@@ -484,6 +501,7 @@ class UbisysD1(CustomDevice):
     QuirkBuilder("ubisys", "D1")
     .replaces(UbisysBallastConfiguration)
     .adds(UbisysDeviceSetup)
+    .adds(UbisysDimmerSetup)
     .add_to_registry()
 )
 
@@ -491,7 +509,8 @@ class UbisysD1(CustomDevice):
     QuirkBuilder("ubisys", "D1-R")
     .replaces(UbisysBallastConfiguration)
     .adds(UbisysDeviceSetup)
+    .adds(UbisysDimmerSetup)
     .add_to_registry()
 )
 
-_LOGGER.info("Registered Ubisys D1/D1-R dimmer quirks with enhanced ballast and DeviceSetup clusters")
+_LOGGER.info("Registered Ubisys D1/D1-R dimmer quirks with enhanced ballast, DeviceSetup, and DimmerSetup clusters")
