@@ -1,5 +1,7 @@
 # Logging Policy
 
+Compatibility: Home Assistant 2024.1+ (Python 3.11+)
+
 This integration aims to be quiet by default and richly informative on demand.
 
 ## Principles
@@ -40,4 +42,3 @@ logger:
   logs:
     custom_components.ubisys: debug
 ```
-

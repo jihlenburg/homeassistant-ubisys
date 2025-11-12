@@ -1,5 +1,7 @@
 # Troubleshooting Guide
 
+Compatibility: Home Assistant 2024.1+ (Python 3.11+)
+
 This guide helps you diagnose and fix common issues with the Ubisys Home Assistant integration.
 
 ## Table of Contents

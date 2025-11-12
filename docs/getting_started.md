@@ -1,5 +1,7 @@
 # Getting Started
 
+Compatibility: Home Assistant 2024.1+ (Python 3.11+)
+
 This quick guide helps you install, configure, and use the Ubisys integration in Home Assistant. It links directly to the relevant option flows and task‑focused docs for common scenarios.
 
 ## 1) Install the Integration
@@ -39,4 +41,3 @@ Open Settings → Devices & Services → Ubisys → [Your Device] → Configure.
 - S1 configuration: docs/s1_configuration.md
 - Input configuration presets (D1/S1): docs/input_configuration.md
 - Troubleshooting: docs/troubleshooting.md
-

@@ -1,5 +1,7 @@
 # Ubisys Zigbee Devices for Home Assistant
 
+Docs home: docs/index.md
+
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
 [![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/jihlenburg/homeassistant-ubisys)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)

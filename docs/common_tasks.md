@@ -1,5 +1,7 @@
 # Common Tasks (Cookbook)
 
+Compatibility: Home Assistant 2024.1+ (Python 3.11+)
+
 A quick set of recipes for everyday tasks.
 
 ## Calibrate a J1 Cover
