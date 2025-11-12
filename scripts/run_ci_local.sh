@@ -6,7 +6,6 @@ set -euo pipefail
 # - Installs dev/test deps
 # - Runs black/isort/flake8/mypy and pytest with coverage
 
-HA_VERSION="2024.1.*"
 PYTHON_BIN="python3"
 VENV_DIR=".venv"
 
@@ -49,9 +48,23 @@ python -m pip install --upgrade pip >/dev/null
 echo "[ci] Installing lint/type tooling"
 pip install -q black isort flake8 mypy
 
-echo "[ci] Installing test deps (HA=${HA_VERSION})"
+PYVER=$(. ${VENV_DIR}/bin/python - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+)
+
+# Choose an HA version compatible with the Python in .venv
+if [[ "$PYVER" == 3.11* || "$PYVER" == 3.12* || "$PYVER" == 3.13* ]]; then
+  HA_VERSION="2024.1.6"
+else
+  # Fallback for Python 3.10 environments
+  HA_VERSION="2023.6.4"
+fi
+
+echo "[ci] Installing test deps (Python=${PYVER}, HA=${HA_VERSION})"
 pip install -q \
-  "homeassistant==${HA_VERSION}" \
+  homeassistant==${HA_VERSION} \
   pytest pytest-asyncio pytest-cov \
   pytest-homeassistant-custom-component
 
@@ -70,4 +83,3 @@ echo "[ci] Running tests"
 pytest -q --cov=custom_components/ubisys --cov-report=term-missing
 
 echo "[ci] Done ✅"
-

@@ -32,6 +32,12 @@ make typecheck
 make test
 ```
 
+Notes:
+- The local CI script auto-selects a compatible Home Assistant version based on your Python in .venv:
+  - Python ≥ 3.11 → HA 2024.1.6
+  - Python 3.10 → HA 2023.6.4
+- GitHub CI pins to HA 2024.1.6.
+
 ### Initial Setup (Manual)
 
 1. **Fork the repository:**
