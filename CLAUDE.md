@@ -250,6 +250,18 @@ User automations triggered
 - Diagnostics payload content and redaction
 - Calibration flow happy-path and failure-path (mocked clusters)
 
+## Work Log Expectations (for Claude Code)
+
+Always keep an up‑to‑date, human‑readable log of work performed:
+
+- Append entries to `docs/work_log.md` for every meaningful change set.
+  - Use a date heading (YYYY‑MM‑DD) and concise bullets.
+  - Summarize what changed (code, docs, CI), why, and any follow‑ups.
+- Update `CHANGELOG.md` under the "Unreleased" section to reflect added/changed/fixed/reliability items.
+- Use clear, Conventional Commit‑style messages (e.g., `feat:`, `fix:`, `docs:`, `chore(ci):`).
+
+This logbook is separate from HA’s Logbook feature and is intended for developers to quickly understand recent work.
+
 ### Device Trigger Architecture (v2.0+ Phase 3)
 
 Device triggers expose physical button presses as automation triggers in the Home Assistant UI, making them user-friendly and discoverable.
