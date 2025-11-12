@@ -96,7 +96,6 @@ create_directories() {
 
     mkdir -p "$HA_CONFIG_DIR/custom_components/ubisys/translations"
     mkdir -p "$HA_CONFIG_DIR/custom_zha_quirks"
-    mkdir -p "$HA_CONFIG_DIR/python_scripts"
 
     success "Directories created"
 }
@@ -174,37 +173,76 @@ install_integration() {
         "$HA_CONFIG_DIR/custom_components/ubisys/translations/en.json" \
         "translations"
 
+    download_file \
+        "$REPO_URL/custom_components/ubisys/button.py" \
+        "$HA_CONFIG_DIR/custom_components/ubisys/button.py" \
+        "button.py"
+
+    download_file \
+        "$REPO_URL/custom_components/ubisys/j1_calibration.py" \
+        "$HA_CONFIG_DIR/custom_components/ubisys/j1_calibration.py" \
+        "j1_calibration.py"
+
+    download_file \
+        "$REPO_URL/custom_components/ubisys/d1_config.py" \
+        "$HA_CONFIG_DIR/custom_components/ubisys/d1_config.py" \
+        "d1_config.py"
+
+    download_file \
+        "$REPO_URL/custom_components/ubisys/helpers.py" \
+        "$HA_CONFIG_DIR/custom_components/ubisys/helpers.py" \
+        "helpers.py"
+
+    download_file \
+        "$REPO_URL/custom_components/ubisys/input_monitor.py" \
+        "$HA_CONFIG_DIR/custom_components/ubisys/input_monitor.py" \
+        "input_monitor.py"
+
+    download_file \
+        "$REPO_URL/custom_components/ubisys/device_trigger.py" \
+        "$HA_CONFIG_DIR/custom_components/ubisys/device_trigger.py" \
+        "device_trigger.py"
+
+    download_file \
+        "$REPO_URL/custom_components/ubisys/input_config.py" \
+        "$HA_CONFIG_DIR/custom_components/ubisys/input_config.py" \
+        "input_config.py"
+
     success "Integration files installed"
 }
 
-# Install quirk
-install_quirk() {
-    info "Installing Ubisys J1 quirk..."
+# Install ZHA quirks
+install_quirks() {
+    info "Installing Ubisys ZHA quirks..."
 
-    # Backup existing quirk
-    backup_existing "$HA_CONFIG_DIR/custom_zha_quirks/ubisys_j1.py" "quirk"
+    # Backup existing quirks
+    backup_existing "$HA_CONFIG_DIR/custom_zha_quirks/ubisys_j1.py" "J1 quirk"
+    backup_existing "$HA_CONFIG_DIR/custom_zha_quirks/ubisys_d1.py" "D1 quirk"
+    backup_existing "$HA_CONFIG_DIR/custom_zha_quirks/ubisys_s1.py" "S1 quirk"
+    backup_existing "$HA_CONFIG_DIR/custom_zha_quirks/ubisys_common.py" "common quirk module"
+
+    # Download all quirk files
+    download_file \
+        "$REPO_URL/custom_zha_quirks/ubisys_common.py" \
+        "$HA_CONFIG_DIR/custom_zha_quirks/ubisys_common.py" \
+        "common quirk module"
 
     download_file \
         "$REPO_URL/custom_zha_quirks/ubisys_j1.py" \
         "$HA_CONFIG_DIR/custom_zha_quirks/ubisys_j1.py" \
-        "ZHA quirk"
-
-    success "Quirk installed"
-}
-
-# Install calibration script
-install_calibration_script() {
-    info "Installing calibration script..."
-
-    # Backup existing script
-    backup_existing "$HA_CONFIG_DIR/python_scripts/ubisys_j1_calibrate.py" "calibration script"
+        "J1 quirk"
 
     download_file \
-        "$REPO_URL/python_scripts/ubisys_j1_calibrate.py" \
-        "$HA_CONFIG_DIR/python_scripts/ubisys_j1_calibrate.py" \
-        "calibration script"
+        "$REPO_URL/custom_zha_quirks/ubisys_d1.py" \
+        "$HA_CONFIG_DIR/custom_zha_quirks/ubisys_d1.py" \
+        "D1 quirk"
 
-    success "Calibration script installed"
+    download_file \
+        "$REPO_URL/custom_zha_quirks/ubisys_s1.py" \
+        "$HA_CONFIG_DIR/custom_zha_quirks/ubisys_s1.py" \
+        "S1/S1-R quirk"
+
+    success "All quirks installed"
 }
 
 # Update configuration.yaml
@@ -243,17 +281,6 @@ EOF
     else
         success "ZHA custom quirks path already configured"
     fi
-
-    # Check if python_script is enabled
-    if ! grep -q "^python_script:" "$config_file"; then
-        info "Enabling python_script component..."
-        echo "" >> "$config_file"
-        echo "# Python Scripts" >> "$config_file"
-        echo "python_script:" >> "$config_file"
-        success "Enabled python_script component"
-    else
-        success "python_script component already enabled"
-    fi
 }
 
 # Validate Home Assistant configuration
@@ -281,10 +308,11 @@ print_completion() {
     echo ""
     info "Next steps:"
     info "  1. Restart Home Assistant"
-    info "  2. Go to Configuration > Integrations"
+    info "  2. Go to Settings > Devices & Services > Integrations"
     info "  3. Click '+ Add Integration'"
     info "  4. Search for 'Ubisys' and follow the setup"
-    info "  5. Run calibration using the ubisys.calibrate service"
+    info "  5. For J1 devices: Use calibration button or service"
+    info "  6. For D1/S1 devices: Configure via device settings"
     echo ""
     info "Backup location: $BACKUP_DIR"
     echo ""
@@ -303,13 +331,12 @@ rollback() {
             cp -r "$BACKUP_DIR/ubisys" "$HA_CONFIG_DIR/custom_components/" 2>/dev/null || true
         fi
 
-        if [ -f "$BACKUP_DIR/ubisys_j1.py" ]; then
-            cp "$BACKUP_DIR/ubisys_j1.py" "$HA_CONFIG_DIR/custom_zha_quirks/" 2>/dev/null || true
-        fi
-
-        if [ -f "$BACKUP_DIR/ubisys_j1_calibrate.py" ]; then
-            cp "$BACKUP_DIR/ubisys_j1_calibrate.py" "$HA_CONFIG_DIR/python_scripts/" 2>/dev/null || true
-        fi
+        # Restore quirks
+        for quirk in ubisys_j1.py ubisys_d1.py ubisys_s1.py ubisys_common.py; do
+            if [ -f "$BACKUP_DIR/$quirk" ]; then
+                cp "$BACKUP_DIR/$quirk" "$HA_CONFIG_DIR/custom_zha_quirks/" 2>/dev/null || true
+            fi
+        done
 
         if [ -f "$BACKUP_DIR/configuration.yaml" ]; then
             cp "$BACKUP_DIR/configuration.yaml" "$HA_CONFIG_DIR/" 2>/dev/null || true
@@ -336,8 +363,7 @@ main() {
     create_backup
     create_directories
     install_integration
-    install_quirk
-    install_calibration_script
+    install_quirks
     update_configuration
     validate_configuration
     print_completion

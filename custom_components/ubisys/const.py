@@ -126,9 +126,21 @@ SHADE_TYPE_TO_FEATURES: Final = {
 }
 
 # J1-specific manufacturer attributes (WindowCovering cluster extensions)
-UBISYS_ATTR_CONFIGURED_MODE: Final = 0x1000              # Window covering type
+# CRITICAL: All require manufacturer code 0x10F2
+# Reference: Ubisys J1 Technical Reference Manual, WindowCovering cluster section
+UBISYS_ATTR_WINDOW_COVERING_TYPE: Final = 0x0000        # Window covering type (mfg-specific)
+UBISYS_ATTR_TURNAROUND_GUARD_TIME: Final = 0x1000       # Guard time between reversals
 UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS: Final = 0x1001  # Tilt transition steps
 UBISYS_ATTR_TOTAL_STEPS: Final = 0x1002                  # Total motor steps
+UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS2: Final = 0x1003  # Second direction (bidirectional)
+UBISYS_ATTR_TOTAL_STEPS2: Final = 0x1004                 # Second direction total steps
+UBISYS_ATTR_ADDITIONAL_STEPS: Final = 0x1005             # Additional steps for overtravel
+UBISYS_ATTR_INACTIVE_POWER_THRESHOLD: Final = 0x1006     # Power threshold for stall detection
+UBISYS_ATTR_STARTUP_STEPS: Final = 0x1007                # Steps to run on startup
+
+# Backward compatibility alias (DEPRECATED - will be removed in v2.0)
+# Use UBISYS_ATTR_WINDOW_COVERING_TYPE instead
+UBISYS_ATTR_CONFIGURED_MODE: Final = UBISYS_ATTR_WINDOW_COVERING_TYPE
 
 # Window covering attribute IDs (standard ZCL)
 ATTR_WINDOW_COVERING_TYPE: Final = 0x0000        # Window covering type attribute

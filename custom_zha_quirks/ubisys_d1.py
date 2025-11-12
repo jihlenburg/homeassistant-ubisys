@@ -10,29 +10,37 @@ Device Type: Dimmable Light (0x0101)
 Manufacturer Code: 0x10F2
 
 Endpoints:
-    1: Configuration (Basic, Identify, Groups, Scenes, OnOff, LevelControl)
-    4: Dimmer control (Basic, Identify, Groups, OnOff, LevelControl, Ballast, DeviceSetup)
-    5: Metering (Metering, Electrical Measurement)
+    1: Dimmable Light (Basic, Identify, Groups, Scenes, OnOff, LevelControl, Ballast, DimmerSetup)
+    4: Metering and config (Metering, Electrical Measurement)
+    232: DeviceSetup (InputConfigurations, InputActions - common to all Ubisys devices)
 
 Manufacturer-specific attributes:
 
-1. Ballast Configuration cluster (0x0301, endpoint 4):
+1. Ballast Configuration cluster (0x0301, endpoint 1):
    Standard attributes:
    - 0x0011: ballast_min_level (uint8) - Minimum light level (1-254)
    - 0x0012: ballast_max_level (uint8) - Maximum light level (1-254)
 
-   Manufacturer-specific (if exposed by device):
-   - Phase control mode (location TBD via testing)
+   Note: Manual indicates MinLevel=0x0010, MaxLevel=0x0011, but ZCL standard
+   uses 0x0011/0x0012. Code reads both to detect which IDs are present.
 
-2. DeviceSetup cluster (0xFC00, endpoint 4, mfg code 0x10F2):
+2. DimmerSetup cluster (0xFC01, endpoint 1, mfg code 0x10F2):
+   - 0x0002: mode (bitmap8) - Phase control mode
+     - Bits [1:0]: 0=automatic, 1=forward phase, 2=reverse phase, 3=reserved
+     - Bits [7:2]: Reserved
+     - Only writable when output is OFF
+
+3. DeviceSetup cluster (0xFC00, endpoint 232, mfg code 0x10F2):
    - 0x0000: input_configurations (CharacterString) - Physical input config
    - 0x0001: input_actions (CharacterString) - Input behavior config
 
-3. Metering cluster (0x0702, endpoint 5):
+   Note: EP232 is standard across all Ubisys devices (J1, D1, S1)
+
+4. Metering cluster (0x0702, endpoint 4):
    - Power measurement (watts)
    - Energy tracking (kWh)
 
-4. Electrical Measurement cluster (0x0B04, endpoint 5):
+5. Electrical Measurement cluster (0x0B04, endpoint 4):
    - Voltage, current, power measurements
 
 Usage:
@@ -368,22 +376,28 @@ class UbisysD1(CustomDevice):
     This quirk provides V1 compatibility for Home Assistant systems that don't
     support QuirkBuilder V2. It will be automatically used as a fallback.
 
-    Device Structure:
-        - Endpoint 1: Configuration and control (standard dimmer functions)
-        - Endpoint 4: Enhanced dimmer with ballast config and DeviceSetup
-        - Endpoint 5: Power metering
+    Device Structure (per Ubisys D1 Technical Reference Manual):
+        - Endpoint 1: Dimmable Light (Ballast, DimmerSetup clusters)
+        - Endpoint 4: Power metering (Metering, Electrical Measurement)
+        - Endpoint 232: DeviceSetup (InputConfigurations, InputActions)
+
+    Key Corrections (v1.2.0):
+        - Moved DeviceSetup from EP4 → EP232 (matches manual, aligns with all Ubisys devices)
+        - Removed duplicate Ballast from EP4 (kept on EP1 only)
+        - Moved metering from EP5 → EP4 (matches manual)
 
     Why This Quirk Exists:
         1. Exposes standard ballast configuration attributes (min/max level)
-        2. Exposes Ubisys DeviceSetup cluster for physical switch configuration
-        3. Provides automatic manufacturer code injection
-        4. Enables comprehensive logging for debugging
+        2. Exposes DimmerSetup cluster for phase control mode configuration
+        3. Exposes DeviceSetup cluster at correct endpoint (EP232) for input config
+        4. Provides automatic manufacturer code injection
+        5. Enables comprehensive logging for debugging
 
     Integration Usage:
         The Ubisys Home Assistant integration uses this quirk to:
-        - Configure phase control mode (via d1_config.py)
-        - Configure ballast min/max levels (via d1_config.py)
-        - Configure physical inputs (via d1_config.py)
+        - Configure phase control mode (via d1_config.py, DimmerSetup/EP1)
+        - Configure ballast min/max levels (via d1_config.py, Ballast/EP1)
+        - Configure physical inputs (via input_config.py, DeviceSetup/EP232)
 
     Debugging:
         Enable debug logging to see all cluster operations:
@@ -399,7 +413,7 @@ class UbisysD1(CustomDevice):
             ("ubisys", "D1-R"),    # DIN rail variant
         ],
         ENDPOINTS: {
-            # Endpoint 1: Dimmable Light with phase control
+            # Endpoint 1: Dimmable Light with Ballast and DimmerSetup
             1: {
                 PROFILE_ID: 0x0104,  # Zigbee Home Automation
                 DEVICE_TYPE: 0x0101,  # Dimmable Light
@@ -417,23 +431,8 @@ class UbisysD1(CustomDevice):
                     0x0019,  # OTA Upgrade
                 ],
             },
-            # Endpoint 4: Enhanced dimmer control with ballast and DeviceSetup
+            # Endpoint 4: Power metering
             4: {
-                PROFILE_ID: 0x0104,  # Zigbee Home Automation
-                DEVICE_TYPE: 0x0101,  # Dimmable Light
-                INPUT_CLUSTERS: [
-                    0x0000,  # Basic
-                    0x0003,  # Identify
-                    0x0004,  # Groups
-                    0x0006,  # On/Off
-                    0x0008,  # Level Control
-                    0x0301,  # Ballast Configuration
-                    0xFC00,  # Ubisys DeviceSetup (manufacturer-specific)
-                ],
-                OUTPUT_CLUSTERS: [],
-            },
-            # Endpoint 5: Power metering
-            5: {
                 PROFILE_ID: 0x0104,  # Zigbee Home Automation
                 DEVICE_TYPE: 0x0009,  # Mains Power Outlet (for metering)
                 INPUT_CLUSTERS: [
@@ -442,12 +441,21 @@ class UbisysD1(CustomDevice):
                 ],
                 OUTPUT_CLUSTERS: [],
             },
+            # Endpoint 232: DeviceSetup (common to all Ubisys devices)
+            232: {
+                PROFILE_ID: 0x0104,  # Zigbee Home Automation
+                DEVICE_TYPE: 0x0850,  # Configuration Tool
+                INPUT_CLUSTERS: [
+                    0xFC00,  # Ubisys DeviceSetup (manufacturer-specific)
+                ],
+                OUTPUT_CLUSTERS: [],
+            },
         },
     }
 
     replacement = {
         ENDPOINTS: {
-            # Endpoint 1: Dimmable Light with phase control
+            # Endpoint 1: Dimmable Light with Ballast and DimmerSetup
             1: {
                 PROFILE_ID: 0x0104,
                 DEVICE_TYPE: 0x0101,  # Dimmable Light
@@ -465,28 +473,22 @@ class UbisysD1(CustomDevice):
                     0x0019,  # OTA
                 ],
             },
-            # Endpoint 4: Replace with enhanced clusters
+            # Endpoint 4: Power metering
             4: {
                 PROFILE_ID: 0x0104,
-                DEVICE_TYPE: 0x0101,
-                INPUT_CLUSTERS: [
-                    Basic.cluster_id,
-                    Identify.cluster_id,
-                    Groups.cluster_id,
-                    OnOff.cluster_id,
-                    LevelControl.cluster_id,
-                    UbisysBallastConfiguration,  # Enhanced ballast cluster
-                    UbisysDeviceSetup,            # Manufacturer-specific cluster
-                ],
-                OUTPUT_CLUSTERS: [],
-            },
-            # Endpoint 5: Keep metering standard
-            5: {
-                PROFILE_ID: 0x0104,
-                DEVICE_TYPE: 0x0009,
+                DEVICE_TYPE: 0x0009,  # Mains Power Outlet
                 INPUT_CLUSTERS: [
                     Metering.cluster_id,
                     ElectricalMeasurement.cluster_id,
+                ],
+                OUTPUT_CLUSTERS: [],
+            },
+            # Endpoint 232: DeviceSetup (common to all Ubisys devices)
+            232: {
+                PROFILE_ID: 0x0104,
+                DEVICE_TYPE: 0x0850,  # Configuration Tool
+                INPUT_CLUSTERS: [
+                    UbisysDeviceSetup,  # Manufacturer-specific cluster
                 ],
                 OUTPUT_CLUSTERS: [],
             },

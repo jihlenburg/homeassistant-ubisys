@@ -86,8 +86,9 @@ _LOGGER = logging.getLogger(__name__)
 # Button: Calibration button for J1 devices
 PLATFORMS: list[Platform] = [Platform.COVER, Platform.LIGHT, Platform.BUTTON]
 
-# ZHA signals
-ZHA_DEVICE_ADDED = "zha_device_added"
+# ZHA integration constants
+# Note: ZHA does not emit dispatcher signals for device additions.
+# Instead, we query the device registry after startup to discover devices.
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -160,16 +161,18 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Set up discovery listener and input monitoring after Home Assistant starts
     # Why wait for EVENT_HOMEASSISTANT_STARTED?
     # - ZHA integration must be fully initialized before we can:
-    #   1. Access ZHA signals (ZHA_DEVICE_ADDED)
-    #   2. Query ZHA gateway for device information
+    #   1. Query device registry for ZHA devices
+    #   2. Access device information and attributes
     #   3. Subscribe to ZHA events for input monitoring
     # - Setting up too early would cause errors or miss devices
     # - This is a common pattern for integrations that depend on other integrations
     @callback
     def async_setup_after_start(event):
         """Set up discovery and input monitoring when Home Assistant starts."""
-        # Set up device discovery (listens for ZHA_DEVICE_ADDED signal)
-        async_setup_discovery(hass)
+        # Scan device registry for Ubisys devices (query-based discovery)
+        # Note: ZHA doesn't emit device addition dispatcher signals, so we
+        # query the device registry instead of listening for events
+        hass.async_create_task(async_discover_devices(hass))
 
         # Set up input monitoring for all already-configured devices
         # This handles devices that were configured before this startup
@@ -382,87 +385,129 @@ async def _unhide_zha_entity(hass: HomeAssistant, entry: ConfigEntry) -> None:
             )
 
 
-@callback
-def async_setup_discovery(hass: HomeAssistant) -> None:
-    """Set up device discovery listener for Ubisys devices.
+async def async_discover_devices(hass: HomeAssistant) -> None:
+    """Scan device registry for Ubisys devices and trigger config flow.
 
-    This function should be called after Home Assistant has started.
-    It listens for ZHA device additions and triggers config flow for
-    supported Ubisys devices.
+    This function queries the Home Assistant device registry for ZHA devices
+    from Ubisys and automatically triggers the config flow for any that aren't
+    already configured.
+
+    Why Query Instead of Listen:
+        ZHA doesn't emit dispatcher signals when devices are added. The only
+        signals ZHA provides are for entity additions ("zha_add_entities"),
+        not device additions. Therefore, we use a query-based approach that
+        scans the device registry on startup.
+
+    Trade-offs:
+        - Pro: Reliable, works with devices paired before integration installed
+        - Pro: Handles restarts (rescans on every HA startup)
+        - Con: Won't auto-discover devices paired after startup (user must
+          manually add via config flow UI or restart HA)
+
+    This approach is sufficient because:
+        1. Most users install integration after pairing devices with ZHA
+        2. Manual config flow is always available
+        3. Restart triggers re-scan (common workflow after pairing new device)
     """
+    _LOGGER.debug("Scanning device registry for Ubisys devices...")
 
-    @callback
-    def device_added_listener(device) -> None:
-        """Handle ZHA device added event."""
-        # Check if this is a supported Ubisys device
-        if device.manufacturer != MANUFACTURER:
-            return
+    # Get device registry
+    device_registry = dr.async_get(hass)
 
-        if device.model not in SUPPORTED_MODELS:
+    # Track discovery statistics
+    found_count = 0
+    configured_count = 0
+    triggered_count = 0
+
+    # Scan all devices in registry
+    for device_entry in device_registry.devices.values():
+        # Skip devices without identifiers
+        if not device_entry.identifiers:
+            continue
+
+        # Check if this is a ZHA device
+        zha_identifier = None
+        for identifier_domain, identifier_value in device_entry.identifiers:
+            if identifier_domain == "zha":
+                zha_identifier = identifier_value
+                break
+
+        if not zha_identifier:
+            continue
+
+        # Check if it's a Ubisys device
+        if device_entry.manufacturer != MANUFACTURER:
+            continue
+
+        # Extract model (remove any parenthetical suffixes)
+        model = device_entry.model
+        if model and "(" in model:
+            model = model.split("(")[0].strip()
+
+        # Check if it's a supported model
+        if model not in SUPPORTED_MODELS:
             _LOGGER.debug(
-                "Unsupported Ubisys model discovered: %s (supported: %s)",
-                device.model,
+                "Found unsupported Ubisys device: %s (supported: %s)",
+                model,
                 SUPPORTED_MODELS,
             )
-            return
+            continue
 
-        _LOGGER.info(
-            "Discovered supported Ubisys device: %s %s (IEEE: %s)",
-            device.manufacturer,
-            device.model,
-            device.ieee,
+        found_count += 1
+        _LOGGER.debug(
+            "Found Ubisys device: %s %s (IEEE: %s, ID: %s)",
+            device_entry.manufacturer,
+            model,
+            zha_identifier,
+            device_entry.id,
         )
-
-        # Get device registry to find device_id
-        device_registry = dr.async_get(hass)
-        device_entry = device_registry.async_get_device(
-            identifiers={(  # type: ignore[arg-type]
-                "zha",
-                str(device.ieee),
-            )}
-        )
-
-        if not device_entry:
-            _LOGGER.warning(
-                "Could not find device entry for %s %s",
-                device.manufacturer,
-                device.model,
-            )
-            return
 
         # Check if already configured
+        already_configured = False
         for entry in hass.config_entries.async_entries(DOMAIN):
-            if entry.data.get("device_ieee") == str(device.ieee):
+            if entry.data.get("device_ieee") == str(zha_identifier):
+                configured_count += 1
+                already_configured = True
                 _LOGGER.debug(
-                    "Device %s already configured, skipping discovery",
-                    device.ieee,
+                    "Device %s already configured (entry: %s)",
+                    zha_identifier,
+                    entry.title,
                 )
-                return
+                break
+
+        if already_configured:
+            continue
 
         # Trigger discovery config flow
+        triggered_count += 1
+        _LOGGER.info(
+            "Auto-discovering Ubisys device: %s %s (IEEE: %s)",
+            device_entry.manufacturer,
+            model,
+            zha_identifier,
+        )
+
         hass.async_create_task(
             hass.config_entries.flow.async_init(
                 DOMAIN,
                 context={"source": "zha"},
                 data={
-                    "device_ieee": str(device.ieee),
+                    "device_ieee": str(zha_identifier),
                     "device_id": device_entry.id,
-                    "manufacturer": device.manufacturer,
-                    "model": device.model,
-                    "name": device_entry.name or f"{device.manufacturer} {device.model}",
+                    "manufacturer": device_entry.manufacturer,
+                    "model": model,
+                    "name": device_entry.name
+                    or f"{device_entry.manufacturer} {model}",
                 },
             )
         )
 
-    # Register the listener
-    async_dispatcher_connect(hass, ZHA_DEVICE_ADDED, device_added_listener)
-    _LOGGER.debug("Ubisys device discovery listener registered")
+    _LOGGER.info(
+        "Device discovery complete: %d Ubisys devices found, "
+        "%d already configured, %d new config flows triggered",
+        found_count,
+        configured_count,
+        triggered_count,
+    )
 
 
-@callback
-def async_remove_discovery(hass: HomeAssistant) -> None:
-    """Remove device discovery listener."""
-    # Note: async_dispatcher_connect doesn't provide a way to unregister,
-    # so we rely on the listener callback being garbage collected when
-    # the integration is unloaded
-    pass

@@ -375,11 +375,18 @@ async def _calibration_phase_1_enter_mode(
         - Allows writing special configuration attributes
         - Disables normal position limit enforcement
 
-    Why Set configured_mode?
+    Why Set window_covering_type?
 
-    The configured_mode attribute (0x1000) tells the device what type of window
-    covering is attached. This affects how the device interprets commands and
-    calculates positions. Values from const.py SHADE_TYPE_TO_WINDOW_COVERING_TYPE:
+    CRITICAL FIX (v1.2.0): Corrected attribute ID from 0x1000 → 0x0000
+        - Previous code was accidentally writing to TurnaroundGuardTime (0x1000)
+        - Now correctly writes to WindowCoveringType (0x10F2:0x0000)
+        - This prevents unintended modification of device guard time settings
+
+    The window_covering_type attribute (manufacturer 0x10F2, attribute 0x0000)
+    tells the device what type of window covering is attached. This affects how
+    the device interprets commands and calculates positions.
+
+    Values from const.py SHADE_TYPE_TO_WINDOW_COVERING_TYPE:
         - 0x00: Roller shade / Cellular shade (position only)
         - 0x04: Vertical blind (position only)
         - 0x08: Venetian blind / Exterior venetian (position + tilt)
@@ -388,7 +395,7 @@ async def _calibration_phase_1_enter_mode(
         Step 1: Write mode attribute = 0x02 (enter calibration mode)
                 Wait SETTLE_TIME (1s) for device to enter mode
 
-        Step 2: Write configured_mode based on shade type
+        Step 2: Write window_covering_type based on shade type
                 Maps shade_type string → WindowCoveringType enum value
                 Wait SETTLE_TIME (1s) for device to accept configuration
 
@@ -410,7 +417,7 @@ async def _calibration_phase_1_enter_mode(
     Raises:
         HomeAssistantError: If either write operation fails
             - Mode write failure → Zigbee communication issue
-            - configured_mode write failure → Invalid shade type or cluster issue
+            - window_covering_type write failure → Invalid shade type or cluster issue
 
     Example:
         >>> await _calibration_phase_1_enter_mode(cluster, "venetian")
@@ -428,22 +435,23 @@ async def _calibration_phase_1_enter_mode(
     await _enter_calibration_mode(cluster)
     await asyncio.sleep(SETTLE_TIME)
 
-    # Step 2: Write configured_mode based on shade type
-    configured_mode = SHADE_TYPE_TO_WINDOW_COVERING_TYPE.get(shade_type, 0x00)
+    # Step 2: Write window_covering_type based on shade type
+    # CRITICAL FIX (v1.2.0): Now writes to correct attribute (0x0000, not 0x1000)
+    window_covering_type = SHADE_TYPE_TO_WINDOW_COVERING_TYPE.get(shade_type, 0x00)
     _LOGGER.debug(
-        "Step 2: Writing configured_mode = 0x%02X (shade type: %s)",
-        configured_mode,
+        "Step 2: Writing window_covering_type = 0x%02X (0x10F2:0x0000, shade type: %s)",
+        window_covering_type,
         shade_type,
     )
 
     try:
         await cluster.write_attributes(
-            {UBISYS_ATTR_CONFIGURED_MODE: configured_mode},
+            {UBISYS_ATTR_CONFIGURED_MODE: window_covering_type},  # Uses correct constant (now = 0x0000)
             manufacturer=UBISYS_MANUFACTURER_CODE,
         )
     except Exception as err:
         raise HomeAssistantError(
-            f"Failed to write configured_mode: {err}"
+            f"Failed to write window_covering_type: {err}"
         ) from err
 
     await asyncio.sleep(SETTLE_TIME)
@@ -1263,11 +1271,21 @@ async def _get_window_covering_cluster(
         4. Find WindowCovering cluster on endpoint 2
         5. Return cluster object for direct use
 
-    Why Endpoint 2?
+    Endpoint Selection Strategy (CRITICAL FIX v1.2.0):
 
-    The Ubisys J1 has two endpoints:
-        - Endpoint 1: Configuration and diagnostics
-        - Endpoint 2: Window covering control ← This is what we need
+    The Ubisys J1 manual states:
+        - Endpoint 1: Window Covering Device (server cluster 0x0102)
+        - Endpoint 2: Window Covering Controller (client)
+
+    However, field testing shows the cluster may be on either endpoint depending
+    on firmware version or device configuration. Therefore, we probe BOTH:
+
+        1. Try EP1 first (per manual specification)
+        2. Fall back to EP2 if EP1 doesn't have the cluster
+        3. Error only if neither endpoint has WindowCovering cluster
+
+    This resilient approach ensures compatibility across firmware versions and
+    prevents calibration failures due to endpoint assumptions.
 
     Args:
         hass: Home Assistant instance for integration data access
@@ -1317,18 +1335,37 @@ async def _get_window_covering_cluster(
             _LOGGER.error("Device not found in ZHA gateway: %s", device_ieee)
             return None
 
-        # Get WindowCovering cluster from endpoint 2
+        # CRITICAL FIX (v1.2.0): Probe EP1 first (per manual), then EP2 (fallback)
+        # Try Endpoint 1 first (Window Covering Device - server)
+        _LOGGER.debug("Probing endpoint 1 for WindowCovering cluster...")
+        endpoint = device.endpoints.get(1)
+        if endpoint:
+            cluster = endpoint.in_clusters.get(0x0102)
+            if cluster:
+                _LOGGER.info("✓ Found WindowCovering cluster on endpoint 1 (server)")
+                return cluster
+            _LOGGER.debug("WindowCovering cluster not found on endpoint 1")
+        else:
+            _LOGGER.debug("Endpoint 1 not found on device")
+
+        # Fall back to Endpoint 2 (Window Covering Controller - may have cluster in some firmware)
+        _LOGGER.debug("Probing endpoint 2 for WindowCovering cluster...")
         endpoint = device.endpoints.get(2)
-        if not endpoint:
-            _LOGGER.error("Endpoint 2 not found for device: %s", device_ieee)
-            return None
+        if endpoint:
+            cluster = endpoint.in_clusters.get(0x0102)
+            if cluster:
+                _LOGGER.info("✓ Found WindowCovering cluster on endpoint 2 (controller)")
+                return cluster
+            _LOGGER.debug("WindowCovering cluster not found on endpoint 2")
+        else:
+            _LOGGER.debug("Endpoint 2 not found on device")
 
-        cluster = endpoint.in_clusters.get(0x0102)  # WindowCovering cluster ID
-        if not cluster:
-            _LOGGER.error("WindowCovering cluster not found for device: %s", device_ieee)
-            return None
-
-        return cluster
+        # Neither endpoint has the cluster - this is an error
+        _LOGGER.error(
+            "WindowCovering cluster (0x0102) not found on endpoints 1 or 2 for device: %s",
+            device_ieee
+        )
+        return None
 
     except Exception as err:
         _LOGGER.error("Error accessing device cluster: %s", err)

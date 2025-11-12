@@ -12,15 +12,25 @@ Endpoints:
     1: Configuration and diagnostics (Basic, Identify, Groups, Scenes, OnOff, LevelControl)
     2: Window covering control (Basic, Identify, Groups, Scenes, WindowCovering)
 
-Manufacturer-specific attributes (cluster 0x0102, mfg code 0x10F2):
-    - 0x1000: configured_mode (uint8) - Window covering operational mode
+Manufacturer-specific attributes (cluster 0x0102, endpoint 2, mfg code 0x10F2):
+    CRITICAL FIX (v1.2.0): Corrected attribute IDs per Ubisys J1 Technical Reference Manual
+
+    - 0x0000: window_covering_type (uint8) - Window covering operational mode
         0 = Roller shade
-        1 = Cellular shade
-        2 = Vertical blind
-        3 = Venetian blind
-        4 = Exterior venetian blind
+        4 = Vertical blind
+        8 = Venetian blind
+        (Previously incorrectly mapped to 0x1000)
+
+    - 0x1000: turnaround_guard_time (uint16) - Time delay between direction reversals
+        (Do NOT write during calibration - was being overwritten by mistake!)
+
     - 0x1001: lift_to_tilt_transition_steps (uint16) - Steps required for tilt transition
     - 0x1002: total_steps (uint16) - Total motor steps from fully open to fully closed
+    - 0x1003: lift_to_tilt_transition_steps2 (uint16) - Second direction (bidirectional)
+    - 0x1004: total_steps2 (uint16) - Second direction total steps
+    - 0x1005: additional_steps (uint16) - Additional steps for overtravel
+    - 0x1006: inactive_power_threshold (uint16) - Power threshold for stall detection
+    - 0x1007: startup_steps (uint16) - Steps to run on startup
 
 Usage:
     These manufacturer attributes enable precise calibration of the window covering
@@ -59,9 +69,21 @@ _LOGGER = logging.getLogger(__name__)
 UBISYS_MANUFACTURER_CODE: Final[int] = 0x10F2
 
 # Ubisys manufacturer-specific attribute IDs
-UBISYS_ATTR_CONFIGURED_MODE: Final[int] = 0x1000
+# CRITICAL FIX (v1.2.0): Corrected per Ubisys J1 Technical Reference Manual
+UBISYS_ATTR_WINDOW_COVERING_TYPE: Final[int] = 0x0000  # Correct attribute for window covering type
+UBISYS_ATTR_TURNAROUND_GUARD_TIME: Final[int] = 0x1000  # Guard time (was incorrectly used for type!)
 UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS: Final[int] = 0x1001
 UBISYS_ATTR_TOTAL_STEPS: Final[int] = 0x1002
+
+# Additional attributes from manual (available for future use)
+UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS2: Final[int] = 0x1003
+UBISYS_ATTR_TOTAL_STEPS2: Final[int] = 0x1004
+UBISYS_ATTR_ADDITIONAL_STEPS: Final[int] = 0x1005
+UBISYS_ATTR_INACTIVE_POWER_THRESHOLD: Final[int] = 0x1006
+UBISYS_ATTR_STARTUP_STEPS: Final[int] = 0x1007
+
+# Backward compatibility (DEPRECATED)
+UBISYS_ATTR_CONFIGURED_MODE: Final[int] = UBISYS_ATTR_WINDOW_COVERING_TYPE
 
 
 class UbisysWindowCovering(CustomCluster, WindowCovering):
@@ -79,11 +101,18 @@ class UbisysWindowCovering(CustomCluster, WindowCovering):
     cluster_id = WindowCovering.cluster_id
 
     # Manufacturer-specific attributes
+    # CRITICAL FIX (v1.2.0): Updated attribute IDs per technical manual
     manufacturer_attributes = {
-        UBISYS_ATTR_CONFIGURED_MODE: ZCLAttributeDef(
-            id=UBISYS_ATTR_CONFIGURED_MODE,
-            name="configured_mode",
+        UBISYS_ATTR_WINDOW_COVERING_TYPE: ZCLAttributeDef(
+            id=UBISYS_ATTR_WINDOW_COVERING_TYPE,
+            name="window_covering_type",
             type=foundation.DATA_TYPES.uint8,
+            is_manufacturer_specific=True,
+        ),
+        UBISYS_ATTR_TURNAROUND_GUARD_TIME: ZCLAttributeDef(
+            id=UBISYS_ATTR_TURNAROUND_GUARD_TIME,
+            name="turnaround_guard_time",
+            type=foundation.DATA_TYPES.uint16,
             is_manufacturer_specific=True,
         ),
         UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS: ZCLAttributeDef(
@@ -95,6 +124,37 @@ class UbisysWindowCovering(CustomCluster, WindowCovering):
         UBISYS_ATTR_TOTAL_STEPS: ZCLAttributeDef(
             id=UBISYS_ATTR_TOTAL_STEPS,
             name="total_steps",
+            type=foundation.DATA_TYPES.uint16,
+            is_manufacturer_specific=True,
+        ),
+        # Additional attributes from manual (exposed but not yet used by integration)
+        UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS2: ZCLAttributeDef(
+            id=UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS2,
+            name="lift_to_tilt_transition_steps2",
+            type=foundation.DATA_TYPES.uint16,
+            is_manufacturer_specific=True,
+        ),
+        UBISYS_ATTR_TOTAL_STEPS2: ZCLAttributeDef(
+            id=UBISYS_ATTR_TOTAL_STEPS2,
+            name="total_steps2",
+            type=foundation.DATA_TYPES.uint16,
+            is_manufacturer_specific=True,
+        ),
+        UBISYS_ATTR_ADDITIONAL_STEPS: ZCLAttributeDef(
+            id=UBISYS_ATTR_ADDITIONAL_STEPS,
+            name="additional_steps",
+            type=foundation.DATA_TYPES.uint16,
+            is_manufacturer_specific=True,
+        ),
+        UBISYS_ATTR_INACTIVE_POWER_THRESHOLD: ZCLAttributeDef(
+            id=UBISYS_ATTR_INACTIVE_POWER_THRESHOLD,
+            name="inactive_power_threshold",
+            type=foundation.DATA_TYPES.uint16,
+            is_manufacturer_specific=True,
+        ),
+        UBISYS_ATTR_STARTUP_STEPS: ZCLAttributeDef(
+            id=UBISYS_ATTR_STARTUP_STEPS,
+            name="startup_steps",
             type=foundation.DATA_TYPES.uint16,
             is_manufacturer_specific=True,
         ),
