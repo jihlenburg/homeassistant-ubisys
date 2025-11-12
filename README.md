@@ -566,24 +566,7 @@ The supported features will update immediately. Re-run calibration after changin
 
 ## 📚 Advanced Configuration
 
-### Direct ZHA Cluster Access
-
-For advanced users who want to directly access manufacturer attributes:
-
-```python
-# Read total steps
-service: zha.issue_zigbee_cluster_command
-data:
-  ieee: "00:12:4b:00:1c:a1:b2:c3"
-  endpoint_id: 2
-  cluster_id: 0x0102
-  cluster_type: in
-  command: read_attributes
-  command_type: client
-  args:
-    attribute: 0x1002
-  manufacturer: 0x10F2
-```
+See docs/advanced_zha_access.md for direct ZHA cluster access examples and cautions.
 
 ## 🏗️ Development
 

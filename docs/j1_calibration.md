@@ -42,10 +42,12 @@ You should run calibration:
 
 ## Calibration Methods
 
+Note on terminology: User-facing docs describe calibration as “Steps”. Developer logs and code reference internal “Phases” for clarity.
+
 ### Method 1: Via Home Assistant UI
 
 1. Navigate to **Developer Tools** → **Services**
-2. Select service: `ubisys.calibrate`
+2. Select service: `ubisys.calibrate_j1`
 3. Choose your entity from the dropdown
 4. Click **Call Service**
 
@@ -54,7 +56,7 @@ You should run calibration:
 ### Method 2: Via YAML Service Call
 
 ```yaml
-service: ubisys.calibrate
+service: ubisys.calibrate_j1
 data:
   entity_id: cover.bedroom_shade
 ```
@@ -71,7 +73,7 @@ automation:
         event: start
     action:
       - delay: 00:00:30  # Wait for ZHA to be ready
-      - service: ubisys.calibrate
+      - service: ubisys.calibrate_j1
         data:
           entity_id: cover.bedroom_shade
 ```
@@ -84,7 +86,7 @@ Create a script in `scripts.yaml`:
 calibrate_bedroom_shade:
   alias: "Calibrate Bedroom Shade"
   sequence:
-    - service: ubisys.calibrate
+    - service: ubisys.calibrate_j1
       data:
         entity_id: cover.bedroom_shade
     - service: notify.mobile_app

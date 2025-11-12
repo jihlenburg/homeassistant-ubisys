@@ -20,7 +20,19 @@ This guide is for developers who want to contribute to or modify the Ubisys Home
 - Git
 - A Ubisys J1 device (for testing) or access to test environment
 
-### Initial Setup
+### Quick Setup (Local CI)
+
+Use the provided Makefile and local CI runner to bootstrap tooling and tests:
+
+```bash
+make ci      # sets up .venv, installs deps, runs lint/type/tests
+make fmt     # auto-fix formatting (black/isort)
+make lint    # run black/isort/flake8 checks
+make typecheck
+make test
+```
+
+### Initial Setup (Manual)
 
 1. **Fork the repository:**
    ```bash
@@ -37,18 +49,10 @@ This guide is for developers who want to contribute to or modify the Ubisys Home
    ```
 
 3. **Install dependencies:**
-   ```bash
-   pip install homeassistant
-   pip install -r requirements_dev.txt  # If exists
-   ```
+   Prefer `make ci`. For manual setup, install black/isort/flake8/mypy and `pytest-homeassistant-custom-component`.
 
-4. **Link to Home Assistant:**
-   ```bash
-   # Create symbolic links for development
-   ln -s $(pwd)/custom_components/ubisys ~/.homeassistant/custom_components/ubisys
-   ln -s $(pwd)/custom_zha_quirks/ubisys_j1.py ~/.homeassistant/custom_zha_quirks/ubisys_j1.py
-   ln -s $(pwd)/python_scripts/ubisys_j1_calibrate.py ~/.homeassistant/python_scripts/ubisys_j1_calibrate.py
-   ```
+4. **Link to Home Assistant (optional):**
+   Development can be done via symlink or by letting HA load from your config folder. The integration no longer depends on python_scripts; prefer services and Options Flow.
 
 5. **Configure Home Assistant:**
    ```yaml
@@ -303,7 +307,7 @@ _LOGGER.error("Error occurred: %s", error)
 
 ### Automated Testing
 
-**Note:** Automated tests are planned for future development.
+Automated tests live under `tests/` and use `pytest-homeassistant-custom-component` to simulate a minimal HA instance with mocked ZHA/zigpy.
 
 Structure for tests:
 
