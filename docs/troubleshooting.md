@@ -13,6 +13,7 @@ This guide helps you diagnose and fix common issues with the Ubisys Home Assista
 - [Position Control Issues](#position-control-issues)
 - [Tilt Control Issues](#tilt-control-issues)
 - [Logging and Debugging](#logging-and-debugging)
+ - [Repairs](#repairs)
 
 ## Installation Issues
 
@@ -610,3 +611,6 @@ If you've tried these troubleshooting steps and still have issues:
    - Use ZHA entity directly
    - Bypass Ubisys integration temporarily
    - File issue for permanent fix
+## Repairs
+
+If expected clusters are not found (e.g., WindowCovering or DeviceSetup), the integration raises a Home Assistant Repairs issue to guide recovery steps (ensure ZHA is loaded, device is paired, quirks enabled). Open Settings → Repairs for details and remediation.
