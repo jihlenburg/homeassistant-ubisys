@@ -47,6 +47,8 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
+import voluptuous as vol
+from homeassistant.helpers import config_validation as cv
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
@@ -592,3 +594,5 @@ def _recompute_verbose_flags(hass: HomeAssistant) -> None:
 async def _options_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update by recomputing verbose flags."""
     _recompute_verbose_flags(hass)
+# Config is entry-only; no YAML configuration
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)

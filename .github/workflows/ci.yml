@@ -33,6 +33,7 @@ jobs:
       - uses: home-assistant/actions/hassfest@master
 
   hacs:
+    if: ${{ false }} # temporarily disabled until brands/topics are set up
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,4 +59,3 @@ jobs:
         env:
           PYTHONPATH: custom_components
         run: pytest -q --cov=custom_components/ubisys --cov-report=term-missing
-

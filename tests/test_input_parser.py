@@ -25,7 +25,9 @@ def test_input_actions_parse_single_entry():
     # endpoint=0x02,
     # cluster=0x0006 (OnOff)
     # command_template: command_id=0x02 (Toggle)
-    entry = bytes([8, 0x00, 0x07, 0x02, 0x06, 0x00, 0x02, 0x00])
+    # length=8 implies 3 bytes of command_template after header fields
+    # Provide command_id=0x02 and one payload byte 0x00 plus a pad 0x00
+    entry = bytes([8, 0x00, 0x07, 0x02, 0x06, 0x00, 0x02, 0x00, 0x00])
     data = header + entry
 
     actions = InputActionsParser.parse(data)
@@ -37,4 +39,3 @@ def test_input_actions_parse_single_entry():
     assert a.source_endpoint == 2
     assert a.cluster_id == 0x0006
     assert a.command_id == 0x02
-
