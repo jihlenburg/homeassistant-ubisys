@@ -5,7 +5,7 @@
 Docs home: docs/index.md
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/jihlenburg/homeassistant-ubisys)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](https://github.com/jihlenburg/homeassistant-ubisys)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 A complete Home Assistant integration for Ubisys Zigbee devices, providing enhanced support for window covering controllers (J1) and universal dimmers (D1) with custom ZHA quirks, auto-discovery, smart feature filtering, automated calibration, and manufacturer-specific configuration services.
