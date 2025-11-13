@@ -43,6 +43,19 @@ async def async_setup_entry(
     device_ieee = config_entry.data[CONF_DEVICE_IEEE]
     device_id = config_entry.data[CONF_DEVICE_ID]
     shade_type = config_entry.data[CONF_SHADE_TYPE]
+    model = config_entry.data.get("model", "J1")
+
+    # Only create cover entities for J1/J1-R window covering models
+    # D1 devices are lights, S1 devices are switches
+    from .const import WINDOW_COVERING_MODELS
+
+    if model not in WINDOW_COVERING_MODELS:
+        _LOGGER.debug(
+            "Skipping cover entity for non-window-covering device: model=%s (ieee=%s)",
+            model,
+            device_ieee,
+        )
+        return
 
     # Find the ZHA cover entity
     zha_entity_id = await _find_zha_cover_entity(hass, device_id)

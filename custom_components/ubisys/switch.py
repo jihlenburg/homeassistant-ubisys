@@ -31,6 +31,19 @@ async def async_setup_entry(
     """Set up Ubisys switch from config entry."""
     device_ieee = config_entry.data[CONF_DEVICE_IEEE]
     device_id = config_entry.data[CONF_DEVICE_ID]
+    model = config_entry.data.get("model", "S1")
+
+    # Only create switch entities for S1/S1-R switch models
+    # J1 devices are covers, D1 devices are lights
+    from .const import SWITCH_MODELS
+
+    if model not in SWITCH_MODELS:
+        _LOGGER.debug(
+            "Skipping switch entity for non-switch device: model=%s (ieee=%s)",
+            model,
+            device_ieee,
+        )
+        return
 
     # Find the ZHA switch entity
     zha_entity_id = await _find_zha_switch_entity(hass, device_id)

@@ -94,6 +94,18 @@ async def async_setup_entry(
     device_id = config_entry.data[CONF_DEVICE_ID]
     model = config_entry.data.get("model", "D1")
 
+    # Only create light entities for D1/D1-R dimmer models
+    # J1 devices are covers, S1 devices are switches
+    from .const import DIMMER_MODELS
+
+    if model not in DIMMER_MODELS:
+        _LOGGER.debug(
+            "Skipping light entity for non-dimmer device: model=%s (ieee=%s)",
+            model,
+            device_ieee,
+        )
+        return
+
     _LOGGER.debug(
         "Setting up Ubisys light for device: ieee=%s, id=%s, model=%s",
         device_ieee,

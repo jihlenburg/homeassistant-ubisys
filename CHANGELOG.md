@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Platform files now skip creating entities for wrong device types (e.g., light platform no longer tries to create entities for J1 covers)
+
 ## [1.2.2] - 2025-11-13
 
 ### Fixed
