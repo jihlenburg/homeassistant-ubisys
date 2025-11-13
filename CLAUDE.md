@@ -234,9 +234,10 @@ User automations triggered
 
 ## CI & Tests
 
-- GitHub Actions: hassfest, HACS, black/isort/flake8/mypy, pytest with HA 2024.1.*.
-- Local CI: `scripts/run_ci_local.sh` and Makefile (`ci`, `fmt`, `lint`, `typecheck`, `test`).
-- Tests use `pytest-homeassistant-custom-component`; ZHA/zigpy mocked.
+- **Dependencies**: Managed via `pyproject.toml` [dependency-groups] (PEP 735, Oct 2024) - modern Python standard
+- **Local CI**: `scripts/run_ci_local.sh` and Makefile (`ci`, `fmt`, `lint`, `typecheck`, `test`) - auto-creates venv, installs via uv
+- **GitHub Actions**: hassfest, HACS, black/isort/flake8/mypy, pytest with HA 2024.1.*
+- **Test Infrastructure**: Custom fixtures in `tests/conftest.py`; ZHA/zigpy mocked via MagicMock/AsyncMock
 
 ### Current Tests
 

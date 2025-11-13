@@ -104,14 +104,6 @@ else
   python -m pip install --upgrade pip
 fi
 
-echo "[ci] Installing lint/type tooling (black, isort, flake8, mypy)"
-if $QUIET; then
-  "${INSTALLER[@]}" install -q black isort flake8 mypy
-else
-  # Force progress bars if available
-  PIP_PROGRESS_BAR=on "${INSTALLER[@]}" install black isort flake8 mypy
-fi
-
 PYVER=$("${VENV_DIR}/bin/python" - <<'PY'
 import sys
 print(f"{sys.version_info.major}.{sys.version_info.minor}")
@@ -130,28 +122,28 @@ case "$PYVER" in
     echo "[ci] Python ${PYVER} is not supported for running tests."
     echo "[ci] Please create a venv with Python 3.11 (recommended) or 3.10, then rerun:"
     echo "[ci]   python3.11 -m venv .venv && source .venv/bin/activate && make ci"
-    echo "[ci] Proceeding with lint/type only."
+    echo "[ci] Proceeding with lint/type only (no test deps)."
     HA_VERSION=""
     ;;
 esac
 
+# Install all development dependencies (lint, type, test) from pyproject.toml
 if [[ -n "${HA_VERSION}" ]]; then
-  echo "[ci] Installing test deps (Python=${PYVER}, HA=${HA_VERSION})"
+  echo "[ci] Installing dev dependencies (Python=${PYVER}, HA=${HA_VERSION})"
+  echo "[ci] Using pyproject.toml [dependency-groups] (PEP 735)"
   if $QUIET; then
-    "${INSTALLER[@]}" install -q \
-      homeassistant==${HA_VERSION} \
-      async-timeout \
-      pytest pytest-asyncio pytest-cov \
-      pytest-homeassistant-custom-component
+    "${INSTALLER[@]}" install -q --group dev
   else
-    PIP_PROGRESS_BAR=on "${INSTALLER[@]}" install \
-      homeassistant==${HA_VERSION} \
-      async-timeout \
-      pytest pytest-asyncio pytest-cov \
-      pytest-homeassistant-custom-component
+    PIP_PROGRESS_BAR=on "${INSTALLER[@]}" install --group dev
   fi
 else
-  echo "[ci] Skipping test dependency install due to unsupported Python version"
+  # Install only lint and typecheck (skip test group which needs compatible Python)
+  echo "[ci] Installing lint/typecheck only (test skipped for Python ${PYVER})"
+  if $QUIET; then
+    "${INSTALLER[@]}" install -q --group lint --group typecheck
+  else
+    PIP_PROGRESS_BAR=on "${INSTALLER[@]}" install --group lint --group typecheck
+  fi
 fi
 
 echo "[ci] Running linters and type checks"
@@ -166,11 +158,9 @@ flake8 custom_components/ubisys
 mypy
 
 if [[ -n "${HA_VERSION}" ]]; then
-  echo "[ci] Running tests"
-  # Avoid 3rd-party plugins; run isolated and suppress assertion rewrite edge cases
-  export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
-  export PYTHONPATH=.
-  pytest --assert=plain
+  echo "[ci] Running tests with coverage"
+  # pytest.ini handles PYTHONPATH and test discovery
+  pytest --cov=custom_components/ubisys --cov-report=term-missing
 else
   echo "[ci] Tests skipped (unsupported Python ${PYVER})"
 fi

@@ -5,15 +5,16 @@
 - `custom_zha_quirks/`: ZHA quirks for Ubisys devices (manufacturer attributes, model mapping).
 - `docs/`: Development and architecture docs (see `docs/development.md`).
 - `install.sh`: One‑line installer for HA environments.
-- Tests: not yet present; add under `tests/` when introduced.
+- `tests/`: Test suite with pytest (see `tests/README.md`); fixtures in `conftest.py`; 23% coverage baseline.
 
 ## Build, Test, and Development Commands
-- Prereqs: Home Assistant 2024.1.0+ and Python 3.11+.
+- Prereqs: Home Assistant 2024.1.0+ and Python 3.11+; uv recommended for fast dependency install.
 - Local install: `./install.sh` (creates folders, copies files, validates config).
 - Dev links: `ln -s $(pwd)/custom_components/ubisys /config/custom_components/ubisys` and `ln -s $(pwd)/custom_zha_quirks /config/custom_zha_quirks`.
 - Restart HA: `ha core restart` (or UI: Settings → System → Restart).
 - Validate config: `hass --script check_config -c /config`; logs: `grep -i ubisys /config/home-assistant.log`.
-- Format/lint: `black custom_components/ubisys custom_zha_quirks && isort . && flake8 custom_components/ubisys && mypy custom_components/ubisys`.
+- CI/Testing: `make ci` (creates .venv, installs from `pyproject.toml` [dependency-groups], runs lint/type/tests).
+- Quick commands: `make fmt` (auto-fix), `make lint`, `make typecheck`, `make test`.
 
 ## Coding Style & Naming Conventions
 - PEP 8; 4‑space indent; `black` (88 cols) and `isort` required; type hints for public functions; Google‑style docstrings.
@@ -22,10 +23,12 @@
 - Async‑first: avoid blocking I/O; use HA helpers; appropriate logging levels.
 
 ## Testing Guidelines
-- Manual HA testing for now: exercise config/option flows, cover/light commands, state updates, calibration.
-- Prefer real hardware for quirks, calibration, and input monitoring changes.
-- Use `DEBUG` logging during development; avoid `print`.
-- When adding tests, place under `tests/` (e.g., `test_config_flow.py`, `test_cover.py`).
+- Automated tests: `make test` runs pytest with coverage; see `tests/README.md` for comprehensive fixture guide.
+- Test fixtures: `tests/conftest.py` provides mock clusters, config entries, ZHA devices, and helper functions.
+- Coverage target: 80%+ (current: 23% baseline); prioritize calibration, config flow, and platform tests.
+- Manual HA testing: exercise config/option flows, cover/light commands, state updates, calibration with real hardware.
+- Prefer real hardware for quirks, calibration, and input monitoring validation.
+- Use `DEBUG` logging during development; avoid `print`; leverage structured logging (`kv()`, `info_banner()`).
 
 ## Commit & Pull Request Guidelines
 - Conventional Commits with optional scope (e.g., `feat(config_flow): ...`).

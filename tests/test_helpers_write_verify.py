@@ -34,4 +34,3 @@ async def test_write_verify_mismatch_raises():
     cluster = FakeCluster({0x1234: 1})
     with pytest.raises(HomeAssistantError):
         await async_write_and_verify_attrs(cluster, {0x1234: 2}, retries=0)
-

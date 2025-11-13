@@ -22,12 +22,11 @@ async def test_options_menu_and_about(hass):
 
     # Menu
     result = await flow.async_step_init(None)
-    assert result["type"] == config_entries.FlowResultType.MENU
+    assert result["type"] == "menu"  # FlowResultType.MENU not available in HA 2024.1.6
     assert "about" in result["menu_options"]
     assert "configure" in result["menu_options"]
 
     # About page
     result = await flow.async_step_about(None)
-    assert result["type"] == config_entries.FlowResultType.FORM
+    assert result["type"] == "form"  # FlowResultType.FORM not available in HA 2024.1.6
     assert result["step_id"] == "about"
-
