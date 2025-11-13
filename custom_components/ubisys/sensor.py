@@ -8,16 +8,17 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import Any, Deque
 from collections import deque
+from typing import Any, Deque, Mapping
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, SIGNAL_INPUT_EVENT, CONF_DEVICE_IEEE
+from .const import CONF_DEVICE_IEEE, DOMAIN, SIGNAL_INPUT_EVENT
+from .ha_typing import callback as _typed_callback
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,14 +41,16 @@ class UbisysLastInputEventSensor(SensorEntity):
     _attr_name = "Last Input Event"
     _attr_icon = "mdi:clock-outline"
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, device_ieee: str) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, device_ieee: str
+    ) -> None:
         self.hass = hass
         self._entry = entry
         self._device_ieee = device_ieee
         self._device_id = entry.data.get("device_id")
         self._attr_unique_id = f"{device_ieee}_last_input"
         self._attr_device_info = {"identifiers": {(DOMAIN, device_ieee)}}
-        self._attr_extra_state_attributes = {}
+        self._attr_extra_state_attributes: dict[str, Any] = {}
         self._history: Deque[dict[str, Any]] = deque(maxlen=10)
         self._unsubscribe: Any | None = None
 
@@ -55,12 +58,12 @@ class UbisysLastInputEventSensor(SensorEntity):
         # Subscribe to per-device dispatcher signal from input_monitor
         signal = f"{SIGNAL_INPUT_EVENT}_{self._device_id}"
 
-        @callback
-        def _handle_event(event_data: dict[str, Any]) -> None:
+        @_typed_callback
+        def _handle_event(event_data: Mapping[str, object]) -> None:
             # Update state to current UTC ISO; keep rich attributes for UX
             now = dt.datetime.now(dt.timezone.utc).isoformat()
             self._attr_native_value = now
-            summary = {
+            summary: dict[str, object] = {
                 "ts": now,
                 "input": event_data.get("input_number"),
                 "press": event_data.get("press_type"),

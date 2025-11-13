@@ -34,19 +34,15 @@ Why Shared:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
-from async_timeout import timeout
+from typing import TYPE_CHECKING, Any
 
+from async_timeout import timeout
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 
-from .const import (
-    DOMAIN,
-    UBISYS_MANUFACTURER_CODE,
-    VERBOSE_INFO_LOGGING,
-    VERBOSE_INPUT_LOGGING,
-)
+from .const import DOMAIN, VERBOSE_INFO_LOGGING, VERBOSE_INPUT_LOGGING
 
 if TYPE_CHECKING:
     from zigpy.zcl import Cluster
@@ -95,7 +91,7 @@ def extract_model_from_device(device: dr.DeviceEntry) -> str | None:
 
     # Extract just the model code (e.g., "J1" from "J1 (5502)")
     # Handle both "J1" and "J1-R" formats
-    model = device.model.split("(")[0].strip()
+    model: str = device.model.split("(")[0].strip()
     return model if model else None
 
 
@@ -136,7 +132,7 @@ def extract_ieee_from_device(device: dr.DeviceEntry) -> str | None:
         if identifier[0] == "zha":  # ZHA domain identifier
             # Format: ("zha", "00:1f:ee:00:00:00:00:01")
             if len(identifier) > 1:
-                return identifier[1]
+                return str(identifier[1])
     return None
 
 
@@ -480,9 +476,11 @@ async def find_zha_entity_for_device(
     entity_registry = er.async_get(hass)
     entities = er.async_entries_for_device(entity_registry, device_id)
 
+    from typing import cast
+
     for entity_entry in entities:
         if entity_entry.platform == "zha" and entity_entry.domain == domain:
-            return entity_entry.entity_id
+            return cast(str, entity_entry.entity_id)
 
     return None
 
@@ -539,6 +537,7 @@ async def get_device_setup_cluster(
 # ZCL COMMAND WITH TIMEOUT/RETRY
 # ==============================================================================
 
+
 async def async_zcl_command(
     cluster: "Cluster",
     command: str,
@@ -546,7 +545,7 @@ async def async_zcl_command(
     timeout_s: float = 10.0,
     retries: int = 1,
     **kwargs: Any,
-) -> Any:
+) -> None:
     """Send a Zigbee cluster command with timeout and limited retries.
 
     Args:
@@ -557,9 +556,6 @@ async def async_zcl_command(
         retries: Number of retries on failure
         **kwargs: Keyword args for cluster.command
 
-    Returns:
-        Command result
-
     Raises:
         HomeAssistantError on failure
     """
@@ -568,10 +564,16 @@ async def async_zcl_command(
     while attempt <= retries:
         try:
             _LOGGER.debug(
-                "ZCL cmd attempt %d: %s(%s)", attempt + 1, command, ", ".join(map(str, args))
+                "ZCL cmd attempt %d: %s(%s)",
+                attempt + 1,
+                command,
+                ", ".join(map(str, args)),
             )
             async with timeout(timeout_s):
-                return await cluster.command(command, *args, **kwargs)
+                # Execute command and ignore any return value; callers rely on
+                # success/exception rather than command response payload.
+                await cluster.command(command, *args, **kwargs)
+                return None
         except Exception as err:
             last_err = err
             attempt += 1
@@ -579,11 +581,14 @@ async def async_zcl_command(
                 break
             _LOGGER.debug("ZCL cmd retry after error: %s", err)
     raise HomeAssistantError(f"Cluster command failed: {command}: {last_err}")
+
+
 # ==============================================================================
 # ATTR WRITE + READBACK VERIFICATION
 # ==============================================================================
 # Shared helper to write manufacturer/standard attributes and verify by reading
 # them back. This reduces duplication across J1 tuning and D1 configuration.
+
 
 async def async_write_and_verify_attrs(
     cluster: "Cluster",
@@ -612,15 +617,24 @@ async def async_write_and_verify_attrs(
     last_err: Exception | None = None
     while attempt <= retries:
         try:
-            _LOGGER.debug("Write+Verify: attempt %d writing attrs %s (mfg=%s)", attempt + 1, attrs, manufacturer)
+            _LOGGER.debug(
+                "Write+Verify: attempt %d writing attrs %s (mfg=%s)",
+                attempt + 1,
+                attrs,
+                manufacturer,
+            )
             async with timeout(write_timeout):
-                result = await cluster.write_attributes(attrs, manufacturer=manufacturer)
+                result = await cluster.write_attributes(
+                    attrs, manufacturer=manufacturer
+                )
             _LOGGER.debug("Write+Verify: Write result: %s", result)
 
             # Read back the attributes we wrote
             read_ids = list(attrs.keys())
             async with timeout(read_timeout):
-                readback = await cluster.read_attributes(read_ids, manufacturer=manufacturer)
+                readback = await cluster.read_attributes(
+                    read_ids, manufacturer=manufacturer
+                )
             _LOGGER.debug("Write+Verify: Readback result: %s", readback)
 
             # Normalize response
@@ -648,9 +662,12 @@ async def async_write_and_verify_attrs(
     if isinstance(last_err, HomeAssistantError):
         raise last_err
     raise HomeAssistantError(f"Attribute write/verify failed: {last_err}")
+
+
 # ==============================================================================
 # VERBOSE LOGGING FLAGS (GLOBAL RUNTIME)
 # ==============================================================================
+
 
 def is_verbose_info_logging(hass: HomeAssistant | None) -> bool:
     """Return whether verbose INFO logging is enabled.

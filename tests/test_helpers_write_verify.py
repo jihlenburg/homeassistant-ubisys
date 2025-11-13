@@ -1,6 +1,6 @@
 import asyncio
-import pytest
 
+import pytest
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.ubisys.helpers import async_write_and_verify_attrs

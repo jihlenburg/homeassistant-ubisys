@@ -126,12 +126,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import DOMAIN, UBISYS_MANUFACTURER_CODE
+from .const import UBISYS_MANUFACTURER_CODE
 from .helpers import get_device_setup_cluster
 
 _LOGGER = logging.getLogger(__name__)
@@ -270,15 +269,17 @@ class InputAction:
         payload_length = len(self.payload)
 
         # Build bytes
-        result = bytes([
-            input_and_options,
-            transition,
-            source_endpoint,
-            cluster_lo,
-            cluster_hi,
-            command_id,
-            payload_length,
-        ])
+        result = bytes(
+            [
+                input_and_options,
+                transition,
+                source_endpoint,
+                cluster_lo,
+                cluster_hi,
+                command_id,
+                payload_length,
+            ]
+        )
 
         # Append payload if present
         if self.payload:
@@ -674,7 +675,6 @@ class InputConfigPresets:
             "On/Off button pair",
             "Button 1 turns on, Button 2 turns off",
         ),
-
         # D1/D1-R presets
         InputConfigPreset.D1_TOGGLE_DIM: (
             "Toggle + Dim (default)",
@@ -737,9 +737,7 @@ class InputConfigPresets:
         return cls.MODEL_PRESETS.get(model, [])
 
     @classmethod
-    def get_preset_info(
-        cls, preset: InputConfigPreset
-    ) -> tuple[str, str]:
+    def get_preset_info(cls, preset: InputConfigPreset) -> tuple[str, str]:
         """Get preset name and description.
 
         Args:
@@ -781,9 +779,7 @@ async def async_read_input_config(
 
     cluster = await get_device_setup_cluster(hass, device_ieee)
     if not cluster:
-        raise HomeAssistantError(
-            f"DeviceSetup cluster not found for {device_ieee}"
-        )
+        raise HomeAssistantError(f"DeviceSetup cluster not found for {device_ieee}")
 
     try:
         result = await cluster.read_attributes(
@@ -796,9 +792,7 @@ async def async_read_input_config(
 
         attributes_dict = result[0]
         if INPUT_ACTIONS_ATTR_ID not in attributes_dict:
-            raise HomeAssistantError(
-                "InputActions attribute not in read result"
-            )
+            raise HomeAssistantError("InputActions attribute not in read result")
 
         input_actions_data = attributes_dict[INPUT_ACTIONS_ATTR_ID]
 
@@ -855,6 +849,7 @@ async def async_apply_input_config(
         >>> await async_apply_input_config(hass, ieee, micro_code)
     """
     from .helpers import is_verbose_info_logging
+
     _LOGGER.log(
         logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
         "Applying InputActions configuration to %s",
@@ -863,9 +858,7 @@ async def async_apply_input_config(
 
     cluster = await get_device_setup_cluster(hass, device_ieee)
     if not cluster:
-        raise HomeAssistantError(
-            f"DeviceSetup cluster not found for {device_ieee}"
-        )
+        raise HomeAssistantError(f"DeviceSetup cluster not found for {device_ieee}")
 
     try:
         # Step 1: Read current config for rollback (if not provided)
@@ -893,9 +886,7 @@ async def async_apply_input_config(
         if INPUT_ACTIONS_ATTR_ID in write_status:
             status_code = write_status[INPUT_ACTIONS_ATTR_ID]
             if status_code != 0:  # 0 = success
-                raise HomeAssistantError(
-                    f"Write failed with status code {status_code}"
-                )
+                raise HomeAssistantError(f"Write failed with status code {status_code}")
 
         _LOGGER.debug("Write successful, verifying...")
 
@@ -932,6 +923,4 @@ async def async_apply_input_config(
             err,
             exc_info=True,
         )
-        raise HomeAssistantError(
-            f"Failed to apply configuration: {err}"
-        ) from err
+        raise HomeAssistantError(f"Failed to apply configuration: {err}") from err

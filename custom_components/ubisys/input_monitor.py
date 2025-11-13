@@ -10,42 +10,35 @@ and event entities.
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any, Iterable, cast
 
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
     ATTR_COMMAND,
     ATTR_DEVICE_IEEE,
     ATTR_INPUT_NUMBER,
     ATTR_PRESS_TYPE,
-    CONF_DEVICE_IEEE,
-    DEVICE_SETUP_CLUSTER_ID,
     DOMAIN,
     EVENT_UBISYS_INPUT,
     INPUT_ACTIONS_ATTR_ID,
     SIGNAL_INPUT_EVENT,
     UBISYS_MANUFACTURER_CODE,
 )
+from .ha_typing import HAEvent
+from .ha_typing import callback as _typed_callback
 from .helpers import (
     extract_ieee_from_device,
     extract_model_from_device,
-    get_cluster,
     get_device_setup_cluster,
-    get_entity_device_info,
-    validate_ubisys_entity,
+    is_verbose_info_logging,
+    is_verbose_input_logging,
 )
-from .logtools import info_banner, kv, Stopwatch
 from .input_parser import InputActionRegistry, InputActionsParser, PressType
-from .helpers import is_verbose_info_logging, is_verbose_input_logging
-
-if TYPE_CHECKING:
-    from zigpy.zcl import Cluster
+from .logtools import Stopwatch, info_banner, kv
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -214,7 +207,9 @@ class UbisysInputMonitor:
                         },
                     )
                 except Exception:
-                    _LOGGER.debug("Unable to create Repairs issue for missing DeviceSetup cluster")
+                    _LOGGER.debug(
+                        "Unable to create Repairs issue for missing DeviceSetup cluster"
+                    )
                 return
 
             # Read InputActions attribute (manufacturer-specific, requires mfg code)
@@ -343,8 +338,9 @@ class UbisysInputMonitor:
            If users report missed button presses, we can implement approach #3
            by adding command interception to the custom quirks.
         """
-        @callback
-        def handle_zha_event(event: Event) -> None:
+
+        @_typed_callback
+        def handle_zha_event(event: HAEvent) -> None:
             """Handle ZHA event and check if it's from a controller endpoint."""
             try:
                 event_data = event.data
@@ -355,16 +351,25 @@ class UbisysInputMonitor:
                     return
 
                 # Check if event is from a controller endpoint
-                endpoint_id = event_data.get("endpoint_id")
+                endpoint_id_obj = event_data.get("endpoint_id")
+                endpoint_id = (
+                    endpoint_id_obj if isinstance(endpoint_id_obj, int) else -1
+                )
                 if endpoint_id not in self._controller_endpoints:
                     return
 
                 # Extract command information
-                cluster_id = event_data.get("cluster_id")
-                command_id = event_data.get("command")
-                args = event_data.get("args", [])
+                cluster_id_obj = event_data.get("cluster_id")
+                command_id_obj = event_data.get("command")
+                args_obj = event_data.get("args", [])
+                cluster_id = cluster_id_obj if isinstance(cluster_id_obj, int) else 0
+                command_id = command_id_obj if isinstance(command_id_obj, int) else 0
 
-                level = logging.INFO if is_verbose_input_logging(self.hass) else logging.DEBUG
+                level = (
+                    logging.INFO
+                    if is_verbose_input_logging(self.hass)
+                    else logging.DEBUG
+                )
                 kv(
                     _LOGGER,
                     level,
@@ -376,8 +381,19 @@ class UbisysInputMonitor:
                 )
 
                 # Correlate command with InputActions
+                # Normalize args to bytes payload for registry matching
+                if isinstance(args_obj, (bytes, bytearray)):
+                    payload = bytes(args_obj)
+                elif isinstance(args_obj, list):
+                    try:
+                        payload = bytes(cast(Iterable[int], args_obj))
+                    except Exception:
+                        payload = bytes()
+                else:
+                    payload = bytes()
+
                 self._handle_controller_command(
-                    endpoint_id, cluster_id or 0, command_id or 0, bytes(args)
+                    endpoint_id, cluster_id, command_id, payload
                 )
 
             except Exception as err:
@@ -502,7 +518,7 @@ class UbisysInputMonitor:
         async_dispatcher_send(self.hass, signal, event_data)
 
         # Respect global verbosity for per-event user-facing logs
-        level = logging.INFO if VERBOSE_INPUT_LOGGING else logging.DEBUG
+        level = logging.INFO if is_verbose_input_logging(self.hass) else logging.DEBUG
         _LOGGER.log(
             level,
             "%s input %d: %s",

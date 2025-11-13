@@ -38,6 +38,23 @@ Notes:
   - Python 3.10 → HA 2023.6.4
 - GitHub CI pins to HA 2024.1.6.
 
+### Faster installs with uv (optional)
+
+For significantly faster dependency installation, install uv and the script will use it automatically:
+
+```bash
+# Recommended (isolated install)
+pipx install uv
+
+# Or via pip
+python3 -m pip install --upgrade uv
+
+# Or with Homebrew on macOS
+brew install uv
+```
+
+Docs: https://docs.astral.sh/uv/
+
 ### Initial Setup (Manual)
 
 1. **Fork the repository:**
@@ -55,7 +72,33 @@ Notes:
    ```
 
 3. **Install dependencies:**
-   Prefer `make ci`. For manual setup, install black/isort/flake8/mypy and `pytest-homeassistant-custom-component`.
+Prefer `make ci`. For manual setup, install black/isort/flake8/mypy and `pytest-homeassistant-custom-component`.
+
+## Type Checking (Strict)
+
+- Policy: Treat Python as a typed language. We run mypy in strict mode and fail CI on type errors.
+- Scope: The entire repo is covered (integration + quirks + scripts), with relaxed mypy overrides for `tests/*` only.
+- Config: See `pyproject.toml` `[tool.mypy]`.
+  - strict = true, disallow_untyped_defs = true, disallow_any_decorated = true
+  - warn_return_any = true, warn_unused_ignores = true, warn_unreachable = true
+  - explicit_package_bases = true, ignore_missing_imports = true
+- Local typed helpers: `custom_components/ubisys/ha_typing.py` provides a typed `callback` decorator and a minimal `HAEvent` protocol to prevent Any leaks from HA.
+
+Run locally:
+- `make type` → strict mypy run (alias for `mypy`).
+- `make lint` → black/isort/flake8 across the whole repo.
+- `make ci` → full local CI (venv bootstrap, install deps, lint/type, pytest).
+
+## Tests
+
+- Pytest is run in an isolated mode locally to avoid host plugin issues on macOS:
+  - We disable 3rd‑party plugin autoload and use `pytest.ini` to keep output quiet.
+  - Minimal `tests/conftest.py` provides a basic `hass` fixture for tests that don't require the full HA harness.
+  - Some async tests may be skipped locally; rely on GitHub Actions for a clean, full run.
+
+Tips:
+- If you need to run with full HA fixtures, enable the HA pytest plugin and pin a compatible version of `pytest-homeassistant-custom-component` for the HA version under test.
+- Clear caches if you see odd behavior: `find . -name '*.pyc' -delete && rm -rf .pytest_cache .mypy_cache`.
 
 4. **Link to Home Assistant (optional):**
    Development can be done via symlink or by letting HA load from your config folder. The integration no longer depends on python_scripts; prefer services and Options Flow.

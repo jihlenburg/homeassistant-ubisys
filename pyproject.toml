@@ -1,7 +1,6 @@
 [tool.black]
 line-length = 88
 target-version = ["py311"]
-include = "(custom_components/ubisys|custom_zha_quirks)/.*\.py$"
 
 [tool.isort]
 profile = "black"
@@ -11,14 +10,41 @@ include_trailing_comma = true
 
 [tool.mypy]
 python_version = "3.11"
-warn_unused_ignores = true
+# Cover all Python in the repo (current code lives under custom_components/ and custom_zha_quirks).
+files = "."
+exclude = '^(typings/|\.venv/|venv/|build/|dist/|tmp/)'
+
+
+# Start from strict preset, then tailor for HA/Zigpy env.
+strict = true
 warn_return_any = true
+warn_unused_ignores = true
 no_implicit_optional = true
-check_untyped_defs = true
-disallow_untyped_defs = true
-disallow_any_generics = true
-strict_equality = true
 namespace_packages = true
-files = "custom_components/ubisys"
+explicit_package_bases = true
 ignore_missing_imports = true
 
+# Additional clarity and safety tweaks beyond `strict` defaults.
+warn_redundant_casts = true
+warn_unreachable = true
+strict_equality = true
+
+# Some third-party stubs are incomplete; allow reexports to avoid noise.
+implicit_reexport = false
+
+# Tighten further; enforce annotations on all defs and decorated functions.
+disallow_untyped_defs = true
+disallow_any_decorated = true
+
+# Relax only what's impractical with HA/Zigpy lacking stubs.
+disallow_subclassing_any = false
+disallow_any_unimported = false
+
+[[tool.mypy.overrides]]
+module = [
+  "tests.*",
+]
+disallow_untyped_defs = false
+disallow_any_decorated = false
+check_untyped_defs = false
+warn_unused_ignores = false

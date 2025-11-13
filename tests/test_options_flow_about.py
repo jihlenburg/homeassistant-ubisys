@@ -1,5 +1,4 @@
 import pytest
-
 from homeassistant import config_entries
 
 from custom_components.ubisys.config_flow import UbisysOptionsFlow

@@ -143,7 +143,9 @@ class UbisysCalibrationButton(ButtonEntity):
         entries = er.async_entries_for_config_entry(
             entity_registry, self._config_entry.entry_id
         )
-        cover_entity_id = next((e.entity_id for e in entries if e.domain == "cover"), None)
+        cover_entity_id = next(
+            (e.entity_id for e in entries if e.domain == "cover"), None
+        )
         if not cover_entity_id:
             _LOGGER.error(
                 "Could not find cover entity for device: %s", self._device_ieee
@@ -193,7 +195,9 @@ class UbisysHealthCheckButton(ButtonEntity):
         entries = er.async_entries_for_config_entry(
             entity_registry, self._config_entry.entry_id
         )
-        cover_entity_id = next((e.entity_id for e in entries if e.domain == "cover"), None)
+        cover_entity_id = next(
+            (e.entity_id for e in entries if e.domain == "cover"), None
+        )
         if not cover_entity_id:
             return
         await self.hass.services.async_call(

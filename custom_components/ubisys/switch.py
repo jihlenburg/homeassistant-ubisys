@@ -7,16 +7,17 @@ stable entity IDs. Delegates operations to the underlying ZHA entity.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import CONF_DEVICE_ID, CONF_DEVICE_IEEE, DOMAIN
+from .ha_typing import callback as _typed_callback
 from .helpers import is_verbose_info_logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ async def _find_zha_switch_entity(hass: HomeAssistant, device_id: str) -> str | 
     entities = er.async_entries_for_device(entity_registry, device_id)
     for entry in entities:
         if entry.platform == "zha" and entry.domain == "switch":
-            return entry.entity_id
+            return cast(str, entry.entity_id)
     return None
 
 
@@ -96,8 +97,8 @@ class UbisysSwitch(SwitchEntity):
             )
         )
 
-    @callback
-    def _handle_zha_state_change(self, event: Any) -> None:
+    @_typed_callback
+    def _handle_zha_state_change(self, event: object) -> None:
         self.hass.async_create_task(self._sync_state_from_zha())
 
     async def _sync_state_from_zha(self) -> None:

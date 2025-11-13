@@ -15,7 +15,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,9 +149,7 @@ class InputActionsParser:
         # Parse array header
         array_type = raw_data[pos]
         if array_type != 0x48:
-            raise ValueError(
-                f"Invalid array type: 0x{array_type:02X} (expected 0x48)"
-            )
+            raise ValueError(f"Invalid array type: 0x{array_type:02X} (expected 0x48)")
         pos += 1
 
         # Parse element type
@@ -220,7 +217,9 @@ class InputActionsParser:
             )
 
         # Parse fields
-        if entry_length < 5:  # Minimum: InputAndOptions, Transition, Endpoint, ClusterID
+        if (
+            entry_length < 5
+        ):  # Minimum: InputAndOptions, Transition, Endpoint, ClusterID
             raise ValueError(
                 f"Entry {entry_idx}: Length {entry_length} too short (min 5)"
             )

@@ -6,7 +6,7 @@ troubleshoot issues via Home Assistant's Diagnostics feature.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components import diagnostics
 from homeassistant.config_entries import ConfigEntry
@@ -64,12 +64,16 @@ async def async_get_config_entry_diagnostics(
                     for ep_id, ep in device.endpoints.items():
                         eps[int(ep_id)] = {
                             "in_clusters": [hex(cid) for cid in ep.in_clusters.keys()],
-                            "out_clusters": [hex(cid) for cid in ep.out_clusters.keys()],
+                            "out_clusters": [
+                                hex(cid) for cid in ep.out_clusters.keys()
+                            ],
                         }
                     data["zha_endpoints"] = eps
         # Add last calibration info (if recorded)
-        last = hass.data.get(DOMAIN, {}).get("calibration_history", {}).get(
-            entry.data.get("device_ieee")
+        last = (
+            hass.data.get(DOMAIN, {})
+            .get("calibration_history", {})
+            .get(entry.data.get("device_ieee"))
         )
         if last:
             data["last_calibration"] = last
@@ -77,11 +81,11 @@ async def async_get_config_entry_diagnostics(
         # best effort
         pass
 
-    return diagnostics.async_redact_data(data, REDACT_KEYS)
+    return cast(dict[str, Any], diagnostics.async_redact_data(data, REDACT_KEYS))
 
 
 async def async_get_device_diagnostics(
-    hass: HomeAssistant, entry: ConfigEntry, device
+    hass: HomeAssistant, entry: ConfigEntry, device: Any
 ) -> dict[str, Any]:
     """Return diagnostics for a device (redacted)."""
     payload = await async_get_config_entry_diagnostics(hass, entry)

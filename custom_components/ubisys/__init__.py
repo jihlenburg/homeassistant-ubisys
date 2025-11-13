@@ -46,42 +46,49 @@ See Also:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
-import voluptuous as vol
-from homeassistant.helpers import config_validation as cv
+from typing import TYPE_CHECKING, Any
 
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr, entity_registry as er
-from homeassistant.helpers.device_registry import (
-    async_track_device_registry_updated_event,
-)
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+
+try:
+    from homeassistant.helpers.device_registry import (
+        async_track_device_registry_updated_event,
+    )
+except Exception:  # Older HA versions may not provide this helper
+    async_track_device_registry_updated_event = None
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .j1_calibration import async_calibrate_j1, async_tune_j1
-from .d1_config import (
-    async_configure_ballast,
-    async_configure_inputs,
-    async_configure_phase_mode,
-)
-from .input_monitor import (
-    async_setup_input_monitoring,
-    async_unload_input_monitoring,
-)
 from .const import (
     DOMAIN,
     MANUFACTURER,
+    OPTION_VERBOSE_INFO_LOGGING,
+    OPTION_VERBOSE_INPUT_LOGGING,
     SERVICE_CALIBRATE,
     SERVICE_CONFIGURE_D1_BALLAST,
     SERVICE_CONFIGURE_D1_INPUTS,
     SERVICE_CONFIGURE_D1_PHASE_MODE,
     SUPPORTED_MODELS,
-    OPTION_VERBOSE_INFO_LOGGING,
-    OPTION_VERBOSE_INPUT_LOGGING,
     get_device_type,
 )
+from .d1_config import (
+    async_configure_ballast,
+    async_configure_inputs,
+    async_configure_phase_mode,
+)
+from .ha_typing import HAEvent
+from .ha_typing import callback as _typed_callback
 from .helpers import is_verbose_info_logging
+from .input_monitor import (
+    async_setup_input_monitoring,
+    async_unload_input_monitoring,
+)
+from .j1_calibration import async_calibrate_j1, async_tune_j1
 
 if TYPE_CHECKING:
     from homeassistant.helpers.typing import ConfigType
@@ -92,7 +99,13 @@ _LOGGER = logging.getLogger(__name__)
 # Cover: J1 window covering controllers
 # Light: D1 universal dimmers
 # Button: Calibration button for J1 devices
-PLATFORMS: list[Platform] = [Platform.COVER, Platform.LIGHT, Platform.SWITCH, Platform.SENSOR, Platform.BUTTON]
+PLATFORMS: list[Platform] = [
+    Platform.COVER,
+    Platform.LIGHT,
+    Platform.SWITCH,
+    Platform.SENSOR,
+    Platform.BUTTON,
+]
 
 # ZHA integration constants
 # Note: ZHA does not emit dispatcher signals for device additions.
@@ -142,7 +155,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     try:
         from .const import SERVICE_TUNE_J1_ADVANCED
 
-        _LOGGER.debug("Registering J1 advanced tuning service: %s", SERVICE_TUNE_J1_ADVANCED)
+        _LOGGER.debug(
+            "Registering J1 advanced tuning service: %s", SERVICE_TUNE_J1_ADVANCED
+        )
         hass.services.async_register(
             DOMAIN,
             SERVICE_TUNE_J1_ADVANCED,
@@ -152,7 +167,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         _LOGGER.debug("Unable to register J1 tuning service", exc_info=True)
 
     # Register D1 configuration services
-    _LOGGER.debug("Registering D1 phase mode service: %s", SERVICE_CONFIGURE_D1_PHASE_MODE)
+    _LOGGER.debug(
+        "Registering D1 phase mode service: %s", SERVICE_CONFIGURE_D1_PHASE_MODE
+    )
     hass.services.async_register(
         DOMAIN,
         SERVICE_CONFIGURE_D1_PHASE_MODE,
@@ -185,8 +202,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     #   3. Subscribe to ZHA events for input monitoring
     # - Setting up too early would cause errors or miss devices
     # - This is a common pattern for integrations that depend on other integrations
-    @callback
-    def async_setup_after_start(event):
+    @_typed_callback
+    def async_setup_after_start(event: object) -> None:
         """Set up discovery and input monitoring when Home Assistant starts."""
         # Scan device registry for Ubisys devices (query-based discovery)
         # Note: ZHA doesn't emit device addition dispatcher signals, so we
@@ -195,8 +212,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
         # Also subscribe to device registry updates to discover devices paired
         # after startup without requiring a restart.
-        @callback
-        def _device_registry_listener(event):
+        @_typed_callback
+        def _device_registry_listener(event: HAEvent) -> None:
             try:
                 action = event.data.get("action")
                 if action != "create":
@@ -215,7 +232,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 # Trigger config flow if not already configured
                 for entry in hass.config_entries.async_entries(DOMAIN):
                     if entry.data.get("device_ieee") == str(
-                        next((idv for (idd, idv) in device.identifiers if idd == "zha"), "")
+                        next(
+                            (idv for (idd, idv) in device.identifiers if idd == "zha"),
+                            "",
+                        )
                     ):
                         return
                 _LOGGER.log(
@@ -226,18 +246,23 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 )
                 hass.async_create_task(async_discover_devices(hass))
             except Exception:  # best-effort listener
-                _LOGGER.debug("Device registry listener encountered an error", exc_info=True)
+                _LOGGER.debug(
+                    "Device registry listener encountered an error", exc_info=True
+                )
 
-        async_track_device_registry_updated_event(hass, _device_registry_listener)
+        if async_track_device_registry_updated_event is not None:
+            async_track_device_registry_updated_event(hass, _device_registry_listener)
+        else:
+            _LOGGER.debug(
+                "Device registry update listener helper not available; skipping"
+            )
 
         # Set up input monitoring for all already-configured devices
         # This handles devices that were configured before this startup
         # (e.g., after a Home Assistant restart)
         # Note: We create async tasks to avoid blocking startup
         for entry in hass.config_entries.async_entries(DOMAIN):
-            hass.async_create_task(
-                async_setup_input_monitoring(hass, entry.entry_id)
-            )
+            hass.async_create_task(async_setup_input_monitoring(hass, entry.entry_id))
 
     # Register the startup callback
     # This ensures ZHA is ready before we try to interact with it
@@ -294,7 +319,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id)
         _recompute_verbose_flags(hass)
 
-    return unload_ok
+    return bool(unload_ok)
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -560,8 +585,7 @@ async def async_discover_devices(hass: HomeAssistant) -> None:
                     "device_id": device_entry.id,
                     "manufacturer": device_entry.manufacturer,
                     "model": model,
-                    "name": device_entry.name
-                    or f"{device_entry.manufacturer} {model}",
+                    "name": device_entry.name or f"{device_entry.manufacturer} {model}",
                 },
             )
         )
@@ -594,5 +618,7 @@ def _recompute_verbose_flags(hass: HomeAssistant) -> None:
 async def _options_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update by recomputing verbose flags."""
     _recompute_verbose_flags(hass)
+
+
 # Config is entry-only; no YAML configuration
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)

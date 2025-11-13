@@ -101,19 +101,11 @@ _LOGGER = logging.getLogger(__name__)
 
 # S1 (flush-mount, 1 input)
 # Adds DeviceSetup cluster at endpoint 232 for input configuration
-(
-    QuirkBuilder("ubisys", "S1")
-    .adds(UbisysDeviceSetup)
-    .add_to_registry()
-)
+(QuirkBuilder("ubisys", "S1").adds(UbisysDeviceSetup).add_to_registry())
 
 # S1-R (DIN rail, 2 inputs)
 # Same as S1, just different endpoint layout (metering on EP4 instead of EP3)
-(
-    QuirkBuilder("ubisys", "S1-R")
-    .adds(UbisysDeviceSetup)
-    .add_to_registry()
-)
+(QuirkBuilder("ubisys", "S1-R").adds(UbisysDeviceSetup).add_to_registry())
 
 _LOGGER.info(
     "Registered Ubisys S1/S1-R power switch quirks with DeviceSetup cluster for input configuration"

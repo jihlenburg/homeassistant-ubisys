@@ -13,16 +13,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: |
+            pyproject.toml
+            Makefile
+      - name: Cache mypy results
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: ${{ runner.os }}-mypy-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-mypy-
       - name: Install tooling
         run: |
           python -m pip install --upgrade pip
           pip install black isort flake8 mypy
       - name: Black
-        run: black --check custom_components/ubisys custom_zha_quirks
+        run: black --check .
       - name: Isort
         run: isort --check-only .
       - name: Flake8
-        run: flake8 custom_components/ubisys
+        run: flake8 .
       - name: Mypy
         run: mypy
 

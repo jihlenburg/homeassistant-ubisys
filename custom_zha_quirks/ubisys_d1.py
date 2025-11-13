@@ -71,16 +71,7 @@ Debugging:
 from __future__ import annotations
 
 import logging
-from typing import Any, Final, Optional
-
-from zigpy.quirks import CustomCluster, CustomDevice
-from zigpy.quirks.v2 import QuirkBuilder
-from zigpy.zcl import foundation
-from zigpy.zcl.clusters.general import Basic, Groups, Identify, LevelControl, OnOff
-from zigpy.zcl.clusters.homeautomation import ElectricalMeasurement
-from zigpy.zcl.clusters.lighting import Ballast
-from zigpy.zcl.clusters.smartenergy import Metering
-from zigpy.zcl.foundation import ZCLAttributeDef
+from typing import Any, Final, Optional, cast
 
 from zhaquirks.const import (
     DEVICE_TYPE,
@@ -90,6 +81,14 @@ from zhaquirks.const import (
     OUTPUT_CLUSTERS,
     PROFILE_ID,
 )
+from zigpy.quirks import CustomCluster, CustomDevice
+from zigpy.quirks.v2 import QuirkBuilder
+from zigpy.zcl import foundation
+from zigpy.zcl.clusters.general import Basic, Groups, Identify, LevelControl, OnOff
+from zigpy.zcl.clusters.homeautomation import ElectricalMeasurement
+from zigpy.zcl.clusters.lighting import Ballast
+from zigpy.zcl.clusters.smartenergy import Metering
+from zigpy.zcl.foundation import ZCLAttributeDef
 
 # Import shared Ubisys components
 from custom_zha_quirks.ubisys_common import (
@@ -182,8 +181,11 @@ class UbisysBallastConfiguration(CustomCluster, Ballast):
         # If we discover manufacturer-specific attributes in ballast cluster,
         # add auto-injection logic here similar to J1 quirk.
 
-        result = await super().read_attributes(
-            attributes, allow_cache, only_cache, manufacturer
+        result = cast(
+            dict[int | str, Any],
+            await super().read_attributes(
+                attributes, allow_cache, only_cache, manufacturer
+            ),
         )
 
         _LOGGER.debug("D1 Ballast: Read result: %s", result)
@@ -220,7 +222,10 @@ class UbisysBallastConfiguration(CustomCluster, Ballast):
             manufacturer,
         )
 
-        result = await super().write_attributes(attributes, manufacturer)
+        result = cast(
+            list[foundation.WriteAttributesResponse],
+            await super().write_attributes(attributes, manufacturer),
+        )
 
         _LOGGER.debug("D1 Ballast: Write result: %s", result)
         return result
@@ -319,8 +324,11 @@ class UbisysDimmerSetup(CustomCluster):
             attributes,
         )
 
-        result = await super().read_attributes(
-            attributes, allow_cache, only_cache, manufacturer
+        result = cast(
+            dict[int | str, Any],
+            await super().read_attributes(
+                attributes, allow_cache, only_cache, manufacturer
+            ),
         )
 
         _LOGGER.debug("D1 DimmerSetup: Read result: %s", result)
@@ -364,7 +372,10 @@ class UbisysDimmerSetup(CustomCluster):
             attributes,
         )
 
-        result = await super().write_attributes(attributes, manufacturer)
+        result = cast(
+            list[foundation.WriteAttributesResponse],
+            await super().write_attributes(attributes, manufacturer),
+        )
 
         _LOGGER.debug("D1 DimmerSetup: Write result: %s", result)
         return result
@@ -409,8 +420,8 @@ class UbisysD1(CustomDevice):
 
     signature = {
         MODELS_INFO: [
-            ("ubisys", "D1"),      # Standard model
-            ("ubisys", "D1-R"),    # DIN rail variant
+            ("ubisys", "D1"),  # Standard model
+            ("ubisys", "D1-R"),  # DIN rail variant
         ],
         ENDPOINTS: {
             # Endpoint 1: Dimmable Light with Ballast and DimmerSetup
@@ -467,7 +478,7 @@ class UbisysD1(CustomDevice):
                     OnOff.cluster_id,
                     LevelControl.cluster_id,
                     UbisysBallastConfiguration,  # Enhanced ballast cluster
-                    UbisysDimmerSetup,            # Manufacturer-specific phase control
+                    UbisysDimmerSetup,  # Manufacturer-specific phase control
                 ],
                 OUTPUT_CLUSTERS: [
                     0x0019,  # OTA
@@ -515,4 +526,6 @@ class UbisysD1(CustomDevice):
     .add_to_registry()
 )
 
-_LOGGER.info("Registered Ubisys D1/D1-R dimmer quirks with enhanced ballast, DeviceSetup, and DimmerSetup clusters")
+_LOGGER.info(
+    "Registered Ubisys D1/D1-R dimmer quirks with enhanced ballast, DeviceSetup, and DimmerSetup clusters"
+)

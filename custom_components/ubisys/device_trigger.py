@@ -51,13 +51,12 @@ Architecture:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Mapping
 
 import voluptuous as vol
-
 from homeassistant.components.device_automation import DEVICE_TRIGGER_BASE_SCHEMA
 from homeassistant.const import CONF_DEVICE_ID, CONF_DOMAIN, CONF_PLATFORM, CONF_TYPE
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.typing import ConfigType
@@ -68,6 +67,7 @@ from .const import (
     DOMAIN,
     SIGNAL_INPUT_EVENT,
 )
+from .ha_typing import callback as _typed_callback
 from .helpers import extract_model_from_device
 
 _LOGGER = logging.getLogger(__name__)
@@ -107,10 +107,10 @@ TRIGGER_BUTTON_2_LONG_PRESS = "button_2_long_press"
 #
 PRESS_TYPE_TO_TRIGGER = {
     # Input 0 (Button 1) - First physical input
-    (0, "pressed"): TRIGGER_BUTTON_1_PRESSED,        # Press started
-    (0, "released"): TRIGGER_BUTTON_1_RELEASED,      # Press ended
-    (0, "short_press"): TRIGGER_BUTTON_1_SHORT_PRESS, # Brief press (<1s)
-    (0, "long_press"): TRIGGER_BUTTON_1_LONG_PRESS,   # Extended press (>1s)
+    (0, "pressed"): TRIGGER_BUTTON_1_PRESSED,  # Press started
+    (0, "released"): TRIGGER_BUTTON_1_RELEASED,  # Press ended
+    (0, "short_press"): TRIGGER_BUTTON_1_SHORT_PRESS,  # Brief press (<1s)
+    (0, "long_press"): TRIGGER_BUTTON_1_LONG_PRESS,  # Extended press (>1s)
     # Input 1 (Button 2) - Second physical input (D1, J1, S1-R only)
     (1, "pressed"): TRIGGER_BUTTON_2_PRESSED,
     (1, "released"): TRIGGER_BUTTON_2_RELEASED,
@@ -353,18 +353,19 @@ async def async_attach_trigger(
     # Create dispatcher signal for this device
     signal = f"{SIGNAL_INPUT_EVENT}_{device_id}"
 
-    @callback
-    def handle_event(event_data: dict[str, Any]) -> None:
+    @_typed_callback
+    def handle_event(event_data: Mapping[str, object]) -> None:
         """Handle input event and check if it matches trigger."""
         # Extract input number and press type from event
-        input_number = event_data.get(ATTR_INPUT_NUMBER)
-        press_type = event_data.get(ATTR_PRESS_TYPE)
+        input_number_obj = event_data.get(ATTR_INPUT_NUMBER)
+        press_type_obj = event_data.get(ATTR_PRESS_TYPE)
 
-        if input_number is None or press_type is None:
-            _LOGGER.debug(
-                "Event missing input_number or press_type: %s", event_data
-            )
+        if not isinstance(input_number_obj, int) or not isinstance(press_type_obj, str):
+            _LOGGER.debug("Ignoring event with invalid types: %s", event_data)
             return
+
+        input_number = input_number_obj
+        press_type = press_type_obj
 
         # Map (input_number, press_type) to trigger_type
         event_trigger_type = PRESS_TYPE_TO_TRIGGER.get((input_number, press_type))
@@ -433,6 +434,4 @@ async def async_get_trigger_capabilities(
     Returns:
         Dictionary with 'extra_fields' key containing voluptuous schema
     """
-    return {
-        "extra_fields": vol.Schema({})  # No additional fields needed
-    }
+    return {"extra_fields": vol.Schema({})}  # No additional fields needed

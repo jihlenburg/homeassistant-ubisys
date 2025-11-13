@@ -31,12 +31,12 @@ Compatibility:
 from __future__ import annotations
 
 import logging
-from typing import Any, Final, Optional
+from typing import Any, Final, Optional, cast
 
 from zigpy.quirks import CustomCluster
+from zigpy.types import CharacterString
 from zigpy.zcl import foundation
 from zigpy.zcl.foundation import ZCLAttributeDef
-from zigpy.types import CharacterString
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -172,8 +172,11 @@ class UbisysDeviceSetup(CustomCluster):
             attributes,
         )
 
-        result = await super().read_attributes(
-            attributes, allow_cache, only_cache, manufacturer
+        result = cast(
+            dict[int | str, Any],
+            await super().read_attributes(
+                attributes, allow_cache, only_cache, manufacturer
+            ),
         )
 
         _LOGGER.debug("DeviceSetup: Read result: %s", result)
@@ -220,7 +223,10 @@ class UbisysDeviceSetup(CustomCluster):
             attributes,
         )
 
-        result = await super().write_attributes(attributes, manufacturer)
+        result = cast(
+            list[foundation.WriteAttributesResponse],
+            await super().write_attributes(attributes, manufacturer),
+        )
 
         _LOGGER.debug("DeviceSetup: Write result: %s", result)
         return result

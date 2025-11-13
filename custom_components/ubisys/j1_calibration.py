@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
@@ -32,23 +32,27 @@ from .const import (
     CONF_DEVICE_IEEE,
     CONF_SHADE_TYPE,
     DOMAIN,
-    SERVICE_TUNE_J1_ADVANCED,
     PER_MOVE_TIMEOUT,
     SETTLE_TIME,
     SHADE_TYPE_TILT_STEPS,
+    SHADE_TYPE_TO_WINDOW_COVERING_TYPE,
     STALL_DETECTION_INTERVAL,
     STALL_DETECTION_TIME,
-    UBISYS_ATTR_CONFIGURED_MODE,
-    UBISYS_ATTR_TURNAROUND_GUARD_TIME,
-    UBISYS_ATTR_INACTIVE_POWER_THRESHOLD,
-    UBISYS_ATTR_STARTUP_STEPS,
     UBISYS_ATTR_ADDITIONAL_STEPS,
+    UBISYS_ATTR_CONFIGURED_MODE,
+    UBISYS_ATTR_INACTIVE_POWER_THRESHOLD,
     UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS,
+    UBISYS_ATTR_STARTUP_STEPS,
     UBISYS_ATTR_TOTAL_STEPS,
+    UBISYS_ATTR_TURNAROUND_GUARD_TIME,
     UBISYS_MANUFACTURER_CODE,
 )
-from .helpers import async_write_and_verify_attrs, is_verbose_info_logging, async_zcl_command
-from .logtools import info_banner, kv, Stopwatch
+from .helpers import (
+    async_write_and_verify_attrs,
+    async_zcl_command,
+    is_verbose_info_logging,
+)
+from .logtools import Stopwatch, info_banner, kv
 
 if TYPE_CHECKING:
     from zigpy.zcl import Cluster
@@ -162,6 +166,7 @@ async def async_calibrate_j1(hass: HomeAssistant, call: ServiceCall) -> None:
         _LOGGER.debug("Unable to create start notification")
 
     # Verify entity exists and is a Ubisys entity
+
     entity_registry = er.async_get(hass)
     entity_entry = entity_registry.async_get(entity_id)
 
@@ -204,7 +209,12 @@ async def async_calibrate_j1(hass: HomeAssistant, call: ServiceCall) -> None:
     if test_mode:
         from .logtools import info_banner, kv
     if is_verbose_info_logging(hass):
-        info_banner(_LOGGER, "J1 Calibration Test Mode", entity_id=entity_id, device_ieee=device_ieee)
+        info_banner(
+            _LOGGER,
+            "J1 Calibration Test Mode",
+            entity_id=entity_id,
+            device_ieee=device_ieee,
+        )
         # Pre-flight validation and cluster presence
         await _validate_device_ready(hass, zha_entity_id)
         cluster = await _get_window_covering_cluster(hass, device_ieee)
@@ -214,11 +224,23 @@ async def async_calibrate_j1(hass: HomeAssistant, call: ServiceCall) -> None:
         state = hass.states.get(zha_entity_id)
         pos = state.attributes.get("current_position") if state else None
         try:
-            read = await cluster.read_attributes([UBISYS_ATTR_TOTAL_STEPS], manufacturer=UBISYS_MANUFACTURER_CODE)
-            total_steps = read[0].get(UBISYS_ATTR_TOTAL_STEPS) if isinstance(read, list) and read else None
+            read = await cluster.read_attributes(
+                [UBISYS_ATTR_TOTAL_STEPS], manufacturer=UBISYS_MANUFACTURER_CODE
+            )
+            total_steps = (
+                read[0].get(UBISYS_ATTR_TOTAL_STEPS)
+                if isinstance(read, list) and read
+                else None
+            )
         except Exception:
             total_steps = None
-        kv(_LOGGER, logging.INFO, "Health check", current_position=pos, total_steps=total_steps)
+        kv(
+            _LOGGER,
+            logging.INFO,
+            "Health check",
+            current_position=pos,
+            total_steps=total_steps,
+        )
         return
 
     # Initialize device locks dict if needed
@@ -249,14 +271,12 @@ async def async_calibrate_j1(hass: HomeAssistant, call: ServiceCall) -> None:
         calibration_start = time.time()
 
         try:
-            await _perform_calibration(
-                hass, zha_entity_id, device_ieee, shade_type
-            )
+            await _perform_calibration(hass, zha_entity_id, device_ieee, shade_type)
             elapsed = time.time() - calibration_start
             _LOGGER.info(
                 "Calibration completed successfully for %s in %.1f seconds",
                 entity_id,
-                elapsed
+                elapsed,
             )
             # Record calibration history
             hass.data.setdefault(DOMAIN, {}).setdefault("calibration_history", {})
@@ -320,7 +340,9 @@ async def async_calibrate_j1(hass: HomeAssistant, call: ServiceCall) -> None:
                 if cluster:
                     await _exit_calibration_mode(cluster)
             except Exception as cleanup_err:
-                _LOGGER.error("Failed to exit calibration mode during cleanup: %s", cleanup_err)
+                _LOGGER.error(
+                    "Failed to exit calibration mode during cleanup: %s", cleanup_err
+                )
             # Fire failure event for automations/diagnostics
             try:
                 from .const import EVENT_UBISYS_CALIBRATION_FAILED
@@ -465,10 +487,9 @@ async def _find_zha_cover_entity(hass: HomeAssistant, device_id: str) -> str | N
 
     for entity_entry in entities:
         if entity_entry.platform == "zha" and entity_entry.domain == "cover":
-            return entity_entry.entity_id
+            return cast(str, entity_entry.entity_id)
 
     return None
-
 
 
 async def _validate_device_ready(hass: HomeAssistant, entity_id: str) -> None:
@@ -613,8 +634,8 @@ async def _calibration_phase_1_enter_mode(
         - _exit_calibration_mode(): Reverses this (mode=0x00)
         - const.py SHADE_TYPE_TO_WINDOW_COVERING_TYPE: Mappings
     """
-    from .logtools import kv, Stopwatch
     sw = Stopwatch()
+
     kv(
         _LOGGER,
         logging.DEBUG,
@@ -631,7 +652,9 @@ async def _calibration_phase_1_enter_mode(
     window_covering_type = SHADE_TYPE_TO_WINDOW_COVERING_TYPE.get(shade_type, 0x00)
     try:
         await async_write_and_verify_attrs(
-            cluster, {UBISYS_ATTR_CONFIGURED_MODE: window_covering_type}, manufacturer=UBISYS_MANUFACTURER_CODE
+            cluster,
+            {UBISYS_ATTR_CONFIGURED_MODE: window_covering_type},
+            manufacturer=UBISYS_MANUFACTURER_CODE,
         )
     except Exception as err:
         raise HomeAssistantError(f"Failed to set window_covering_type: {err}") from err
@@ -706,21 +729,14 @@ async def _calibration_phase_2_find_top(
     try:
         await async_zcl_command(cluster, "up_open", timeout_s=15.0, retries=1)
     except Exception as err:
-        raise HomeAssistantError(
-            f"Failed to send up_open command: {err}"
-        ) from err
+        raise HomeAssistantError(f"Failed to send up_open command: {err}") from err
 
     # Step 4: Wait for motor stall
     _LOGGER.debug("Step 4: Waiting for motor stall at top position")
-    final_position = await _wait_for_stall(
-        hass, entity_id, "finding top limit (up)"
-    )
+    final_position = await _wait_for_stall(hass, entity_id, "finding top limit (up)")
 
     # Step 5: Send stop command
-    _LOGGER.debug(
-        "Step 5: Motor stalled at position %s - sending stop",
-        final_position
-    )
+    _LOGGER.debug("Step 5: Motor stalled at position %s - sending stop", final_position)
     try:
         await async_zcl_command(cluster, "stop", timeout_s=10.0, retries=1)
     except Exception as err:
@@ -841,9 +857,7 @@ async def _calibration_phase_3_find_bottom(
     try:
         await async_zcl_command(cluster, "down_close", timeout_s=15.0, retries=1)
     except Exception as err:
-        raise HomeAssistantError(
-            f"Failed to send down_close command: {err}"
-        ) from err
+        raise HomeAssistantError(f"Failed to send down_close command: {err}") from err
 
     # Step 7: Wait for motor stall
     _LOGGER.debug("Step 7: Waiting for motor stall at bottom position")
@@ -852,10 +866,7 @@ async def _calibration_phase_3_find_bottom(
     )
 
     # Step 8: Send stop command
-    _LOGGER.debug(
-        "Step 8: Motor stalled at position %s - sending stop",
-        final_position
-    )
+    _LOGGER.debug("Step 8: Motor stalled at position %s - sending stop", final_position)
     try:
         await async_zcl_command(cluster, "stop", timeout_s=10.0, retries=1)
     except Exception as err:
@@ -864,7 +875,6 @@ async def _calibration_phase_3_find_bottom(
     await asyncio.sleep(SETTLE_TIME)
 
     # Step 9: Read total_steps from device
-    from .logtools import kv, Stopwatch
     sw = Stopwatch()
     _LOGGER.debug("Step 9: Reading total_steps attribute from device")
     try:
@@ -874,7 +884,11 @@ async def _calibration_phase_3_find_bottom(
         )
 
         # Handle both name and ID in response
-        total_steps = result.get("total_steps") or result.get(UBISYS_ATTR_TOTAL_STEPS)
+        from typing import cast
+
+        total_steps = cast(
+            int | None, result.get("total_steps") or result.get(UBISYS_ATTR_TOTAL_STEPS)
+        )
 
         if total_steps is None or total_steps == 0xFFFF:
             raise HomeAssistantError(
@@ -1159,7 +1173,12 @@ async def _perform_calibration(
         - async_calibrate_j1(): Service handler that calls this
     """
     if is_verbose_info_logging(hass):
-        info_banner(_LOGGER, "Starting J1 Calibration", device_ieee=device_ieee, shade_type=shade_type)
+        info_banner(
+            _LOGGER,
+            "Starting J1 Calibration",
+            device_ieee=device_ieee,
+            shade_type=shade_type,
+        )
 
     try:
         overall_start = time.time()
@@ -1177,26 +1196,46 @@ async def _perform_calibration(
         await _calibration_phase_1_enter_mode(cluster, shade_type)
         # Total timeout enforcement across phases
         if time.time() - overall_start > TOTAL_CALIBRATION_TIMEOUT:
-            raise HomeAssistantError("Calibration exceeded total timeout during Phase 1")
+            raise HomeAssistantError(
+                "Calibration exceeded total timeout during Phase 1"
+            )
 
         await _calibration_phase_2_find_top(hass, cluster, zha_entity_id)
         if time.time() - overall_start > TOTAL_CALIBRATION_TIMEOUT:
-            raise HomeAssistantError("Calibration exceeded total timeout during Phase 2")
-        total_steps = await _calibration_phase_3_find_bottom(hass, cluster, zha_entity_id)
+            raise HomeAssistantError(
+                "Calibration exceeded total timeout during Phase 2"
+            )
+        total_steps = await _calibration_phase_3_find_bottom(
+            hass, cluster, zha_entity_id
+        )
         if time.time() - overall_start > TOTAL_CALIBRATION_TIMEOUT:
-            raise HomeAssistantError("Calibration exceeded total timeout during Phase 3")
+            raise HomeAssistantError(
+                "Calibration exceeded total timeout during Phase 3"
+            )
         await _calibration_phase_4_verify(hass, cluster, zha_entity_id)
         if time.time() - overall_start > TOTAL_CALIBRATION_TIMEOUT:
-            raise HomeAssistantError("Calibration exceeded total timeout during Phase 4")
+            raise HomeAssistantError(
+                "Calibration exceeded total timeout during Phase 4"
+            )
         await _calibration_phase_5_finalize(cluster, shade_type, total_steps)
 
         # Success!
         if is_verbose_info_logging(hass):
-            info_banner(_LOGGER, "J1 Calibration Complete", device_ieee=device_ieee, total_steps=total_steps)
+            info_banner(
+                _LOGGER,
+                "J1 Calibration Complete",
+                device_ieee=device_ieee,
+                total_steps=total_steps,
+            )
 
     except Exception as err:
         if is_verbose_info_logging(hass):
-            info_banner(_LOGGER, "J1 Calibration Failed", device_ieee=device_ieee, error=str(err))
+            info_banner(
+                _LOGGER,
+                "J1 Calibration Failed",
+                device_ieee=device_ieee,
+                error=str(err),
+            )
 
         # Attempt cleanup
         try:
@@ -1206,8 +1245,7 @@ async def _perform_calibration(
                 await _exit_calibration_mode(cluster)
         except Exception as cleanup_err:
             _LOGGER.warning(
-                "Failed to exit calibration mode during cleanup: %s",
-                cleanup_err
+                "Failed to exit calibration mode during cleanup: %s", cleanup_err
             )
 
         # Re-raise original error
@@ -1402,14 +1440,15 @@ async def _wait_for_stall(
         # Get current state
         state = hass.states.get(entity_id)
         if not state:
-            raise HomeAssistantError(f"Entity not found during calibration: {entity_id}")
+            raise HomeAssistantError(
+                f"Entity not found during calibration: {entity_id}"
+            )
 
         current_position = state.attributes.get("current_position")
 
         if current_position is None:
             _LOGGER.warning(
-                "No current_position attribute during %s, waiting...",
-                phase_description
+                "No current_position attribute during %s, waiting...", phase_description
             )
             await asyncio.sleep(STALL_DETECTION_INTERVAL)
             continue
@@ -1422,7 +1461,7 @@ async def _wait_for_stall(
                 _LOGGER.debug(
                     "%s: Position stable at %s, starting stall timer",
                     phase_description,
-                    current_position
+                    current_position,
                 )
             else:
                 stall_duration = current_time - stall_start_time
@@ -1432,9 +1471,9 @@ async def _wait_for_stall(
                         "%s: Motor stalled at position %s after %.1fs",
                         phase_description,
                         current_position,
-                        stall_duration
+                        stall_duration,
                     )
-                    return current_position
+                    return int(current_position)
         else:
             # Position changed - motor still moving
             if last_position is not None:
@@ -1443,7 +1482,7 @@ async def _wait_for_stall(
                     phase_description,
                     last_position,
                     current_position,
-                    elapsed
+                    elapsed,
                 )
             stall_start_time = None
             last_position = current_position
@@ -1454,7 +1493,7 @@ async def _wait_for_stall(
                 "%s: Still moving, position=%s, elapsed=%.1fs",
                 phase_description,
                 current_position,
-                elapsed
+                elapsed,
             )
             last_log_time = current_time
 
@@ -1585,7 +1624,7 @@ async def _get_window_covering_cluster(
         # Neither endpoint has the cluster - this is an error
         _LOGGER.error(
             "WindowCovering cluster (0x0102) not found on endpoints 1 or 2 for device: %s",
-            device_ieee
+            device_ieee,
         )
         # Register a Repairs issue for cluster not found
         try:
@@ -1602,7 +1641,9 @@ async def _get_window_covering_cluster(
                 data={"device_ieee": device_ieee},
             )
         except Exception:
-            _LOGGER.debug("Unable to create Repairs issue for missing WindowCovering cluster")
+            _LOGGER.debug(
+                "Unable to create Repairs issue for missing WindowCovering cluster"
+            )
         return None
 
     except Exception as err:

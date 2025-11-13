@@ -6,6 +6,7 @@ easy to scan in Home Assistant.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
@@ -19,7 +20,7 @@ def _fmt_kv(**kvs: Any) -> str:
     return ", ".join(parts)
 
 
-def info_banner(logger, title: str, **kvs: Any) -> None:
+def info_banner(logger: logging.Logger, title: str, **kvs: Any) -> None:
     """Log a 3‑line banner with an optional key=value summary at INFO level."""
     line = _fmt_kv(**kvs) if kvs else ""
     logger.info("╔%s╗", "═" * max(1, len(title) + (len(line) + 2 if line else 0)))
@@ -30,7 +31,7 @@ def info_banner(logger, title: str, **kvs: Any) -> None:
     logger.info("╚%s╝", "═" * max(1, len(title) + (len(line) + 2 if line else 0)))
 
 
-def kv(logger, level: int, msg: str, **kvs: Any) -> None:
+def kv(logger: logging.Logger, level: int, msg: str, **kvs: Any) -> None:
     """Log a message followed by stable key=value pairs at the given level.
 
     Avoids formatting cost when the logger is not enabled for the level.

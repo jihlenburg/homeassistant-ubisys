@@ -30,7 +30,7 @@ See Also:
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -39,7 +39,7 @@ from homeassistant.components.light import (
     LightEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -49,6 +49,7 @@ from .const import (
     CONF_DEVICE_IEEE,
     DOMAIN,
 )
+from .ha_typing import callback as _typed_callback
 from .helpers import is_verbose_info_logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -172,7 +173,7 @@ async def _find_zha_light_entity(hass: HomeAssistant, device_id: str) -> str | N
                 entity_entry.platform,
                 entity_entry.domain,
             )
-            return entity_entry.entity_id
+            return cast(str, entity_entry.entity_id)
 
     _LOGGER.warning(
         "No ZHA light entity found for device %s. Available entities: %s",
@@ -295,8 +296,8 @@ class UbisysLight(LightEntity):
             self._zha_entity_id,
         )
 
-    @callback
-    def _handle_zha_state_change(self, event: Any) -> None:
+    @_typed_callback
+    def _handle_zha_state_change(self, event: object) -> None:
         """Handle ZHA entity state change event.
 
         This callback is triggered whenever the ZHA entity state changes.

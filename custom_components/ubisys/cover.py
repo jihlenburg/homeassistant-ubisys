@@ -7,7 +7,7 @@ while filtering features based on shade type.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.components.cover import (
     ATTR_POSITION,
@@ -16,7 +16,7 @@ from homeassistant.components.cover import (
     CoverEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -28,6 +28,7 @@ from .const import (
     DOMAIN,
     SHADE_TYPE_TO_FEATURES,
 )
+from .ha_typing import callback as _typed_callback
 from .helpers import is_verbose_info_logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ async def _find_zha_cover_entity(hass: HomeAssistant, device_id: str) -> str | N
 
     for entity_entry in entities:
         if entity_entry.platform == "zha" and entity_entry.domain == "cover":
-            return entity_entry.entity_id
+            return cast(str, entity_entry.entity_id)
 
     return None
 
@@ -149,8 +150,8 @@ class UbisysCover(CoverEntity):
             )
         )
 
-    @callback
-    def _handle_zha_state_change(self, event: Any) -> None:
+    @_typed_callback
+    def _handle_zha_state_change(self, event: object) -> None:
         """Handle ZHA entity state change."""
         self.hass.async_create_task(self._sync_state_from_zha())
 
@@ -169,9 +170,7 @@ class UbisysCover(CoverEntity):
         self._attr_is_closed = zha_state.state == "closed"
         self._attr_is_closing = zha_state.attributes.get("is_closing")
         self._attr_is_opening = zha_state.attributes.get("is_opening")
-        self._attr_current_cover_position = zha_state.attributes.get(
-            "current_position"
-        )
+        self._attr_current_cover_position = zha_state.attributes.get("current_position")
         self._attr_current_cover_tilt_position = zha_state.attributes.get(
             "current_tilt_position"
         )
@@ -234,9 +233,7 @@ class UbisysCover(CoverEntity):
 
     async def async_open_cover_tilt(self, **kwargs: Any) -> None:
         """Open the cover tilt."""
-        if not (
-            self._attr_supported_features & CoverEntityFeature.OPEN_TILT
-        ):
+        if not (self._attr_supported_features & CoverEntityFeature.OPEN_TILT):
             _LOGGER.warning(
                 "Open tilt not supported for shade type: %s", self._shade_type
             )
@@ -252,9 +249,7 @@ class UbisysCover(CoverEntity):
 
     async def async_close_cover_tilt(self, **kwargs: Any) -> None:
         """Close the cover tilt."""
-        if not (
-            self._attr_supported_features & CoverEntityFeature.CLOSE_TILT
-        ):
+        if not (self._attr_supported_features & CoverEntityFeature.CLOSE_TILT):
             _LOGGER.warning(
                 "Close tilt not supported for shade type: %s", self._shade_type
             )
@@ -270,9 +265,7 @@ class UbisysCover(CoverEntity):
 
     async def async_stop_cover_tilt(self, **kwargs: Any) -> None:
         """Stop the cover tilt."""
-        if not (
-            self._attr_supported_features & CoverEntityFeature.STOP_TILT
-        ):
+        if not (self._attr_supported_features & CoverEntityFeature.STOP_TILT):
             _LOGGER.warning(
                 "Stop tilt not supported for shade type: %s", self._shade_type
             )
@@ -288,9 +281,7 @@ class UbisysCover(CoverEntity):
 
     async def async_set_cover_tilt_position(self, **kwargs: Any) -> None:
         """Move the cover tilt to a specific position."""
-        if not (
-            self._attr_supported_features & CoverEntityFeature.SET_TILT_POSITION
-        ):
+        if not (self._attr_supported_features & CoverEntityFeature.SET_TILT_POSITION):
             _LOGGER.warning(
                 "Set tilt position not supported for shade type: %s", self._shade_type
             )

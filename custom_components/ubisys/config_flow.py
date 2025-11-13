@@ -38,24 +38,31 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
-from homeassistant.core import callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
+    BALLAST_LEVEL_MAX,
+    BALLAST_LEVEL_MIN,
     CONF_DEVICE_ID,
     CONF_DEVICE_IEEE,
     CONF_INPUT_CONFIG_PRESET,
     CONF_SHADE_TYPE,
     CONF_ZHA_CONFIG_ENTRY_ID,
+    DOMAIN,
     OPTION_VERBOSE_INFO_LOGGING,
     OPTION_VERBOSE_INPUT_LOGGING,
-    DOMAIN,
+    PHASE_MODES,
+    SERVICE_TUNE_J1_ADVANCED,
     SHADE_TYPES,
     get_device_type,
+)
+from .d1_config import (
+    async_configure_ballast,
+    async_configure_phase_mode,
 )
 from .input_config import (
     InputActionBuilder,
@@ -63,17 +70,12 @@ from .input_config import (
     InputConfigPresets,
     async_apply_input_config,
 )
-from .d1_config import (
-    async_configure_phase_mode,
-    async_configure_ballast,
-)
-from .const import PHASE_MODES, BALLAST_LEVEL_MIN, BALLAST_LEVEL_MAX, SERVICE_TUNE_J1_ADVANCED, DOMAIN
 from .logtools import info_banner
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     """Handle a config flow for Ubisys Zigbee."""
 
     VERSION = 1
@@ -190,7 +192,9 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # J1 devices need shade type selection
             data_schema = vol.Schema(
                 {
-                    vol.Required(CONF_SHADE_TYPE, default="roller"): vol.In(SHADE_TYPES),
+                    vol.Required(CONF_SHADE_TYPE, default="roller"): vol.In(
+                        SHADE_TYPES
+                    ),
                 }
             )
 
@@ -210,6 +214,7 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_abort(reason="zha_not_found")
 
             from .helpers import is_verbose_info_logging
+
             _LOGGER.log(
                 logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
                 "Creating config entry for D1 dimmer: %s",
@@ -235,6 +240,7 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_abort(reason="zha_not_found")
 
             from .helpers import is_verbose_info_logging
+
             _LOGGER.log(
                 logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
                 "Creating config entry for S1/S1-R switch: %s",
@@ -311,7 +317,6 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     @staticmethod
-    @callback
     def async_get_options_flow(
         config_entry: config_entries.ConfigEntry,
     ) -> UbisysOptionsFlow:
@@ -322,7 +327,9 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Get the ZHA config entry ID."""
         for entry in self.hass.config_entries.async_entries("zha"):
             if entry.state == config_entries.ConfigEntryState.LOADED:
-                return entry.entry_id
+                from typing import cast
+
+                return cast(str, entry.entry_id)
         return None
 
     async def _get_available_devices(self) -> dict[str, dict[str, Any]]:
@@ -367,7 +374,8 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "device_id": device_entry.id,
                 "manufacturer": device_entry.manufacturer,
                 "model": device_entry.model,
-                "name": device_entry.name or f"{device_entry.manufacturer} {device_entry.model}",
+                "name": device_entry.name
+                or f"{device_entry.manufacturer} {device_entry.model}",
             }
 
         return available
@@ -463,13 +471,17 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                     OPTION_VERBOSE_INFO_LOGGING: bool(
                         user_input.get(
                             OPTION_VERBOSE_INFO_LOGGING,
-                            self.config_entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False),
+                            self.config_entry.options.get(
+                                OPTION_VERBOSE_INFO_LOGGING, False
+                            ),
                         )
                     ),
                     OPTION_VERBOSE_INPUT_LOGGING: bool(
                         user_input.get(
                             OPTION_VERBOSE_INPUT_LOGGING,
-                            self.config_entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False),
+                            self.config_entry.options.get(
+                                OPTION_VERBOSE_INPUT_LOGGING, False
+                            ),
                         )
                     ),
                 }
@@ -491,11 +503,15 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                     ),
                     vol.Optional(
                         OPTION_VERBOSE_INFO_LOGGING,
-                        default=self.config_entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False),
+                        default=self.config_entry.options.get(
+                            OPTION_VERBOSE_INFO_LOGGING, False
+                        ),
                     ): bool,
                     vol.Optional(
                         OPTION_VERBOSE_INPUT_LOGGING,
-                        default=self.config_entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False),
+                        default=self.config_entry.options.get(
+                            OPTION_VERBOSE_INPUT_LOGGING, False
+                        ),
                     ): bool,
                 }
             )
@@ -557,8 +573,13 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                 preset = InputConfigPreset(preset_value)
 
                 from .helpers import is_verbose_info_logging
+
                 _LOGGER.log(
-                    logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
+                    (
+                        logging.INFO
+                        if is_verbose_info_logging(self.hass)
+                        else logging.DEBUG
+                    ),
                     "Applying input preset '%s' to %s (%s)",
                     preset.value,
                     device_name,
@@ -593,7 +614,11 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                 )
 
                 _LOGGER.log(
-                    logging.INFO if is_verbose_info_logging(self.hass) else logging.DEBUG,
+                    (
+                        logging.INFO
+                        if is_verbose_info_logging(self.hass)
+                        else logging.DEBUG
+                    ),
                     "✓ Successfully applied input preset '%s' to %s",
                     preset.value,
                     device_name,
@@ -605,21 +630,27 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                     OPTION_VERBOSE_INFO_LOGGING: bool(
                         user_input.get(
                             OPTION_VERBOSE_INFO_LOGGING,
-                            self.config_entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False),
+                            self.config_entry.options.get(
+                                OPTION_VERBOSE_INFO_LOGGING, False
+                            ),
                         )
                     ),
                     OPTION_VERBOSE_INPUT_LOGGING: bool(
                         user_input.get(
                             OPTION_VERBOSE_INPUT_LOGGING,
-                            self.config_entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False),
+                            self.config_entry.options.get(
+                                OPTION_VERBOSE_INPUT_LOGGING, False
+                            ),
                         )
                     ),
                 }
-                self.hass.config_entries.async_update_entry(self.config_entry, options=new_options)
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, options=new_options
+                )
 
                 return self.async_create_entry(title="", data={})
 
-            except ValueError as err:
+            except ValueError:
                 _LOGGER.error("Invalid preset value: %s", preset_value)
                 errors["base"] = "invalid_preset"
 
@@ -654,11 +685,21 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
 
         data_schema = vol.Schema(
             {
-                vol.Required(
-                    CONF_INPUT_CONFIG_PRESET, default=default_preset
-                ): vol.In(preset_choices),
-                vol.Optional(OPTION_VERBOSE_INFO_LOGGING, default=self.config_entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False)): bool,
-                vol.Optional(OPTION_VERBOSE_INPUT_LOGGING, default=self.config_entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False)): bool,
+                vol.Required(CONF_INPUT_CONFIG_PRESET, default=default_preset): vol.In(
+                    preset_choices
+                ),
+                vol.Optional(
+                    OPTION_VERBOSE_INFO_LOGGING,
+                    default=self.config_entry.options.get(
+                        OPTION_VERBOSE_INFO_LOGGING, False
+                    ),
+                ): bool,
+                vol.Optional(
+                    OPTION_VERBOSE_INPUT_LOGGING,
+                    default=self.config_entry.options.get(
+                        OPTION_VERBOSE_INPUT_LOGGING, False
+                    ),
+                ): bool,
             }
         )
 
@@ -682,7 +723,7 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
         errors: dict[str, str] = {}
 
         model = self.config_entry.data.get("model", "")
-        device_ieee = self.config_entry.data.get(CONF_DEVICE_IEEE)
+        # device_ieee = self.config_entry.data.get(CONF_DEVICE_IEEE)
         entity_name = self.config_entry.data.get("name", "Device")
 
         if model not in ("D1", "D1-R"):
@@ -693,7 +734,9 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
             phase_mode = user_input.get("phase_mode")
             try:
                 applied: dict[str, str | int] = {}
-                light_entity = self._find_entity_id(self.config_entry.entry_id, domain="light")
+                light_entity = self._find_entity_id(
+                    self.config_entry.entry_id, domain="light"
+                )
                 if phase_mode:
                     await async_configure_phase_mode(
                         self.hass,
@@ -723,17 +766,23 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                     OPTION_VERBOSE_INFO_LOGGING: bool(
                         user_input.get(
                             OPTION_VERBOSE_INFO_LOGGING,
-                            self.config_entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False),
+                            self.config_entry.options.get(
+                                OPTION_VERBOSE_INFO_LOGGING, False
+                            ),
                         )
                     ),
                     OPTION_VERBOSE_INPUT_LOGGING: bool(
                         user_input.get(
                             OPTION_VERBOSE_INPUT_LOGGING,
-                            self.config_entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False),
+                            self.config_entry.options.get(
+                                OPTION_VERBOSE_INPUT_LOGGING, False
+                            ),
                         )
                     ),
                 }
-                self.hass.config_entries.async_update_entry(self.config_entry, options=new_options)
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, options=new_options
+                )
                 # Proceed to input config step
                 return await self.async_step_input_config(None)
             except Exception as err:
@@ -743,11 +792,29 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
         # Build schema (include logging toggles)
         data_schema = vol.Schema(
             {
-                vol.Optional("phase_mode", default="automatic"): vol.In(list(PHASE_MODES.keys())),
-                vol.Optional("min_level"): vol.All(vol.Coerce(int), vol.Range(min=BALLAST_LEVEL_MIN, max=BALLAST_LEVEL_MAX)),
-                vol.Optional("max_level"): vol.All(vol.Coerce(int), vol.Range(min=BALLAST_LEVEL_MIN, max=BALLAST_LEVEL_MAX)),
-                vol.Optional(OPTION_VERBOSE_INFO_LOGGING, default=self.config_entry.options.get(OPTION_VERBOSE_INFO_LOGGING, False)): bool,
-                vol.Optional(OPTION_VERBOSE_INPUT_LOGGING, default=self.config_entry.options.get(OPTION_VERBOSE_INPUT_LOGGING, False)): bool,
+                vol.Optional("phase_mode", default="automatic"): vol.In(
+                    list(PHASE_MODES.keys())
+                ),
+                vol.Optional("min_level"): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=BALLAST_LEVEL_MIN, max=BALLAST_LEVEL_MAX),
+                ),
+                vol.Optional("max_level"): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=BALLAST_LEVEL_MIN, max=BALLAST_LEVEL_MAX),
+                ),
+                vol.Optional(
+                    OPTION_VERBOSE_INFO_LOGGING,
+                    default=self.config_entry.options.get(
+                        OPTION_VERBOSE_INFO_LOGGING, False
+                    ),
+                ): bool,
+                vol.Optional(
+                    OPTION_VERBOSE_INPUT_LOGGING,
+                    default=self.config_entry.options.get(
+                        OPTION_VERBOSE_INPUT_LOGGING, False
+                    ),
+                ): bool,
             }
         )
 
@@ -767,7 +834,9 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
         entries = er.async_entries_for_config_entry(entity_registry, config_entry_id)
         for entry in entries:
             if entry.domain == domain:
-                return entry.entity_id
+                from typing import cast
+
+                return cast(str, entry.entity_id)
         raise HomeAssistantError(f"No {domain} entity found for options flow")
 
     async def async_step_j1_advanced(
@@ -784,11 +853,18 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             data: dict[str, Any] = {"entity_id": entity_id}
-            for key in ("turnaround_guard_time", "inactive_power_threshold", "startup_steps", "additional_steps"):
+            for key in (
+                "turnaround_guard_time",
+                "inactive_power_threshold",
+                "startup_steps",
+                "additional_steps",
+            ):
                 if user_input.get(key) is not None:
                     data[key] = user_input[key]
             try:
-                await self.hass.services.async_call(DOMAIN, SERVICE_TUNE_J1_ADVANCED, data, blocking=True)
+                await self.hass.services.async_call(
+                    DOMAIN, SERVICE_TUNE_J1_ADVANCED, data, blocking=True
+                )
                 # Finished options
                 return self.async_create_entry(title="", data={})
             except Exception as err:
@@ -797,10 +873,20 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
 
         data_schema = vol.Schema(
             {
-                vol.Optional("turnaround_guard_time"): vol.All(vol.Coerce(int), vol.Range(min=0, max=65535)),
-                vol.Optional("inactive_power_threshold"): vol.All(vol.Coerce(int), vol.Range(min=0, max=65535)),
-                vol.Optional("startup_steps"): vol.All(vol.Coerce(int), vol.Range(min=0, max=65535)),
-                vol.Optional("additional_steps"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+                vol.Optional("turnaround_guard_time"): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=65535)
+                ),
+                vol.Optional("inactive_power_threshold"): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=65535)
+                ),
+                vol.Optional("startup_steps"): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=65535)
+                ),
+                vol.Optional("additional_steps"): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=100)
+                ),
             }
         )
-        return self.async_show_form(step_id="j1_advanced", data_schema=data_schema, errors=errors)
+        return self.async_show_form(
+            step_id="j1_advanced", data_schema=data_schema, errors=errors
+        )

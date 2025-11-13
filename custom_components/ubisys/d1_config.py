@@ -60,30 +60,22 @@ from .const import (
     BALLAST_LEVEL_MAX,
     BALLAST_LEVEL_MIN,
     CLUSTER_BALLAST,
-    CLUSTER_DEVICE_SETUP,
     CLUSTER_DIMMER_SETUP,
     D1_DIMMABLE_LIGHT_ENDPOINT,
-    D1_DIMMER_ENDPOINT,
-    DEVICE_SETUP_ATTR_INPUT_ACTIONS,
-    DEVICE_SETUP_ATTR_INPUT_CONFIGS,
     DIMMER_SETUP_ATTR_MODE,
-    PHASE_MODE_AUTOMATIC,
-    PHASE_MODE_FORWARD,
-    PHASE_MODE_NAMES,
-    PHASE_MODE_REVERSE,
     PHASE_MODES,
     UBISYS_MANUFACTURER_CODE,
 )
 from .helpers import (
+    async_write_and_verify_attrs,
     get_cluster,
     get_entity_device_info,
     validate_ubisys_entity,
-    async_write_and_verify_attrs,
 )
-from .logtools import info_banner, kv, Stopwatch
+from .logtools import Stopwatch, info_banner, kv
 
 if TYPE_CHECKING:
-    from zigpy.zcl import Cluster
+    pass
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -203,7 +195,12 @@ async def async_configure_phase_mode(
             f"Could not access DimmerSetup cluster for {entity_id}. "
             f"Ensure the device is online and the D1 quirk is loaded."
         )
-    kv(_LOGGER, _LOGGER.level, "DimmerSetup accessed", endpoint=D1_DIMMABLE_LIGHT_ENDPOINT)
+    kv(
+        _LOGGER,
+        _LOGGER.level,
+        "DimmerSetup accessed",
+        endpoint=D1_DIMMABLE_LIGHT_ENDPOINT,
+    )
 
     # Step 6: Ensure output is OFF before writing mode
     # The Mode attribute is writable only when output is OFF.
@@ -217,6 +214,7 @@ async def async_configure_phase_mode(
 
     # Step 7: Write phase control mode
     from .helpers import is_verbose_info_logging
+
     _LOGGER.log(
         logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
         "D1 Config: Configuring phase mode for %s: %s (%d)",
@@ -228,9 +226,17 @@ async def async_configure_phase_mode(
     try:
         # Write + verify mode with manufacturer code
         await async_write_and_verify_attrs(
-            cluster, {DIMMER_SETUP_ATTR_MODE: phase_mode_value}, manufacturer=UBISYS_MANUFACTURER_CODE
+            cluster,
+            {DIMMER_SETUP_ATTR_MODE: phase_mode_value},
+            manufacturer=UBISYS_MANUFACTURER_CODE,
         )
-        kv(_LOGGER, _LOGGER.level, "Phase mode set", phase_mode=phase_mode, elapsed_s=round(sw.elapsed, 1))
+        kv(
+            _LOGGER,
+            _LOGGER.level,
+            "Phase mode set",
+            phase_mode=phase_mode,
+            elapsed_s=round(sw.elapsed, 1),
+        )
 
     except HomeAssistantError:
         # Re-raise HomeAssistantError as-is (already formatted)
@@ -315,7 +321,9 @@ async def async_configure_ballast(
         - const.py: BALLAST_LEVEL_MIN, BALLAST_LEVEL_MAX constants
         - ZCL Spec 5.3: Ballast Configuration Cluster
     """
-    info_banner(_LOGGER, "D1 Ballast Config", entity_id=entity_id, min=min_level, max=max_level)
+    info_banner(
+        _LOGGER, "D1 Ballast Config", entity_id=entity_id, min=min_level, max=max_level
+    )
     sw = Stopwatch()
 
     # Step 1: Validate entity
@@ -329,14 +337,18 @@ async def async_configure_ballast(
         )
 
     # Validate min_level range
-    if min_level is not None and not (BALLAST_LEVEL_MIN <= min_level <= BALLAST_LEVEL_MAX):
+    if min_level is not None and not (
+        BALLAST_LEVEL_MIN <= min_level <= BALLAST_LEVEL_MAX
+    ):
         raise HomeAssistantError(
             f"min_level must be between {BALLAST_LEVEL_MIN} and {BALLAST_LEVEL_MAX}, "
             f"got {min_level}"
         )
 
     # Validate max_level range
-    if max_level is not None and not (BALLAST_LEVEL_MIN <= max_level <= BALLAST_LEVEL_MAX):
+    if max_level is not None and not (
+        BALLAST_LEVEL_MIN <= max_level <= BALLAST_LEVEL_MAX
+    ):
         raise HomeAssistantError(
             f"max_level must be between {BALLAST_LEVEL_MIN} and {BALLAST_LEVEL_MAX}, "
             f"got {max_level}"
@@ -399,7 +411,13 @@ async def async_configure_ballast(
             changes.append(f"min_level={min_level}")
         if max_level is not None:
             changes.append(f"max_level={max_level}")
-        kv(_LOGGER, _LOGGER.level, "Ballast set", changes=", ".join(changes), elapsed_s=round(sw.elapsed, 1))
+        kv(
+            _LOGGER,
+            _LOGGER.level,
+            "Ballast set",
+            changes=", ".join(changes),
+            elapsed_s=round(sw.elapsed, 1),
+        )
 
     except Exception as err:
         _LOGGER.error(

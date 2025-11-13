@@ -46,13 +46,7 @@ Compatibility:
 from __future__ import annotations
 
 import logging
-from typing import Any, Final, Optional
-
-from zigpy.quirks import CustomCluster, CustomDevice
-from zigpy.quirks.v2 import QuirkBuilder
-from zigpy.zcl import foundation
-from zigpy.zcl.clusters.closures import WindowCovering
-from zigpy.zcl.foundation import ZCLAttributeDef
+from typing import Any, Final, Optional, cast
 
 from zhaquirks.const import (
     DEVICE_TYPE,
@@ -62,6 +56,11 @@ from zhaquirks.const import (
     OUTPUT_CLUSTERS,
     PROFILE_ID,
 )
+from zigpy.quirks import CustomCluster, CustomDevice
+from zigpy.quirks.v2 import QuirkBuilder
+from zigpy.zcl import foundation
+from zigpy.zcl.clusters.closures import WindowCovering
+from zigpy.zcl.foundation import ZCLAttributeDef
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,8 +69,12 @@ UBISYS_MANUFACTURER_CODE: Final[int] = 0x10F2
 
 # Ubisys manufacturer-specific attribute IDs
 # CRITICAL FIX (v1.2.0): Corrected per Ubisys J1 Technical Reference Manual
-UBISYS_ATTR_WINDOW_COVERING_TYPE: Final[int] = 0x0000  # Correct attribute for window covering type
-UBISYS_ATTR_TURNAROUND_GUARD_TIME: Final[int] = 0x1000  # Guard time (was incorrectly used for type!)
+UBISYS_ATTR_WINDOW_COVERING_TYPE: Final[int] = (
+    0x0000  # Correct attribute for window covering type
+)
+UBISYS_ATTR_TURNAROUND_GUARD_TIME: Final[int] = (
+    0x1000  # Guard time (was incorrectly used for type!)
+)
 UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS: Final[int] = 0x1001
 UBISYS_ATTR_TOTAL_STEPS: Final[int] = 0x1002
 
@@ -210,8 +213,11 @@ class UbisysWindowCovering(CustomCluster, WindowCovering):
                 UBISYS_MANUFACTURER_CODE,
             )
 
-        return await super().read_attributes(
-            attributes, allow_cache, only_cache, manufacturer
+        return cast(
+            dict[int | str, Any],
+            await super().read_attributes(
+                attributes, allow_cache, only_cache, manufacturer
+            ),
         )
 
     async def write_attributes(
@@ -256,7 +262,10 @@ class UbisysWindowCovering(CustomCluster, WindowCovering):
                 UBISYS_MANUFACTURER_CODE,
             )
 
-        return await super().write_attributes(attributes, manufacturer)
+        return cast(
+            list[foundation.WriteAttributesResponse],
+            await super().write_attributes(attributes, manufacturer),
+        )
 
 
 class UbisysJ1(CustomDevice):
@@ -336,10 +345,6 @@ class UbisysJ1(CustomDevice):
 
 # V2 QuirkBuilder registration (preferred for modern Home Assistant)
 # This will be used if the system supports QuirkBuilder V2 (HA 2023.3+)
-(
-    QuirkBuilder("ubisys", "J1")
-    .replaces(UbisysWindowCovering)
-    .add_to_registry()
-)
+(QuirkBuilder("ubisys", "J1").replaces(UbisysWindowCovering).add_to_registry())
 
 _LOGGER.info("Registered Ubisys J1 quirk")
