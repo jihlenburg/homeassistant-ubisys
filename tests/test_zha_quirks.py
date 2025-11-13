@@ -81,7 +81,9 @@ def ubisys_quirk_modules():
 
     zigpy_zcl = register("zigpy.zcl", types.ModuleType("zigpy.zcl"))
 
-    foundation = register("zigpy.zcl.foundation", types.ModuleType("zigpy.zcl.foundation"))
+    foundation = register(
+        "zigpy.zcl.foundation", types.ModuleType("zigpy.zcl.foundation")
+    )
 
     class ZCLAttributeDef:
         def __init__(self, **kwargs):
@@ -92,7 +94,7 @@ def ubisys_quirk_modules():
     foundation.DATA_TYPES = SimpleNamespace(bitmap8="bitmap8")
     zigpy_zcl.foundation = foundation
 
-    clusters_pkg = register("zigpy.zcl.clusters", types.ModuleType("zigpy.zcl.clusters"))
+    register("zigpy.zcl.clusters", types.ModuleType("zigpy.zcl.clusters"))
 
     def simple_cluster(name: str):
         return type(name, (), {"cluster_id": 0x0001})

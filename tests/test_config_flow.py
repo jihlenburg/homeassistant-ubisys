@@ -3,13 +3,13 @@
 Tests cover both initial setup flow and options flow for all device types.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
+import pytest
 from homeassistant import config_entries
-from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
+from custom_components.ubisys.config_flow import UbisysConfigFlow, UbisysOptionsFlow
 from custom_components.ubisys.const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_IEEE,
@@ -17,8 +17,6 @@ from custom_components.ubisys.const import (
     CONF_ZHA_CONFIG_ENTRY_ID,
     DOMAIN,
 )
-from custom_components.ubisys.config_flow import UbisysConfigFlow, UbisysOptionsFlow
-
 
 # =============================================================================
 # Test Fixtures
@@ -132,7 +130,9 @@ async def test_zha_discovery_j1_device(hass_with_config_entries, j1_discovery_da
 
 
 @pytest.mark.asyncio
-async def test_zha_discovery_duplicate_device(hass_with_config_entries, j1_discovery_data):
+async def test_zha_discovery_duplicate_device(
+    hass_with_config_entries, j1_discovery_data
+):
     """Test ZHA discovery aborts if device already configured."""
     flow = UbisysConfigFlow()
     flow.hass = hass_with_config_entries
@@ -143,7 +143,9 @@ async def test_zha_discovery_duplicate_device(hass_with_config_entries, j1_disco
     existing_entry = MagicMock()
     existing_entry.unique_id = j1_discovery_data["device_ieee"]
 
-    hass_with_config_entries.config_entries.async_entries.return_value = [existing_entry]
+    hass_with_config_entries.config_entries.async_entries.return_value = [
+        existing_entry
+    ]
 
     with patch.object(flow, "_abort_if_unique_id_configured"):
         await flow.async_step_zha(j1_discovery_data)
@@ -194,7 +196,9 @@ async def test_user_step_j1_shows_form(hass, j1_discovery_data):
 
 
 @pytest.mark.asyncio
-async def test_user_step_d1_creates_entry_directly(hass_with_config_entries, d1_discovery_data):
+async def test_user_step_d1_creates_entry_directly(
+    hass_with_config_entries, d1_discovery_data
+):
     """Test user step creates config entry for D1 without additional config."""
     flow = UbisysConfigFlow()
     flow.hass = hass_with_config_entries
@@ -217,7 +221,9 @@ async def test_user_step_d1_creates_entry_directly(hass_with_config_entries, d1_
 
 
 @pytest.mark.asyncio
-async def test_user_step_zha_not_found_shows_error(hass_with_config_entries, j1_discovery_data):
+async def test_user_step_zha_not_found_shows_error(
+    hass_with_config_entries, j1_discovery_data
+):
     """Test user step shows error when ZHA integration not found."""
     flow = UbisysConfigFlow()
     flow.hass = hass_with_config_entries
@@ -284,7 +290,9 @@ async def test_options_flow_configure_j1_shows_form(hass, mock_config_entry):
 
 
 @pytest.mark.asyncio
-async def test_options_flow_configure_j1_updates_options(hass_with_config_entries, mock_config_entry):
+async def test_options_flow_configure_j1_updates_options(
+    hass_with_config_entries, mock_config_entry
+):
     """Test options configure step for J1 updates options."""
     flow = UbisysOptionsFlow(mock_config_entry)
     flow.hass = hass_with_config_entries

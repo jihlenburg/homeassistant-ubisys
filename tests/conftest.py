@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant import setup
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
@@ -39,7 +38,7 @@ def hass():
 
 
 @pytest.fixture
-async def hass_full():
+async def hass_full(tmp_path):
     """Full Home Assistant instance for integration tests.
 
     Provides a real Home Assistant instance with core setup complete.
@@ -50,9 +49,12 @@ async def hass_full():
 
     Note: This is slower than the simple hass fixture, so only use when needed.
     """
-    hass_instance = HomeAssistant()
-    await setup.async_setup_component(hass_instance, "homeassistant", {})
-    await hass_instance.async_block_till_done()
+    hass_instance = HomeAssistant(str(tmp_path))
+    hass_instance.config_entries = SimpleNamespace(
+        async_entries=lambda domain=None: [],
+        async_forward_entry_setups=AsyncMock(),
+        async_unload_platforms=AsyncMock(return_value=True),
+    )
     yield hass_instance
     await hass_instance.async_stop()
 

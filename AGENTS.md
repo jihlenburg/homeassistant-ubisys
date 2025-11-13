@@ -5,7 +5,7 @@
 - `custom_zha_quirks/`: ZHA quirks for Ubisys devices (manufacturer attributes, model mapping).
 - `docs/`: Development and architecture docs (see `docs/development.md`).
 - `install.sh`: One‑line installer for HA environments.
-- `tests/`: Test suite with pytest (see `tests/README.md`); fixtures in `conftest.py`; 23% coverage baseline.
+- `tests/`: Pytest suite with reusable fixtures (`conftest.py`), lightweight HA fakes, zigpy/zhaquirks stubs, and integration bootstrap/input-monitor/device-trigger suites; current repo-wide coverage ~58%.
 
 ## Build, Test, and Development Commands
 - Prereqs: Home Assistant 2024.1.0+ and Python 3.11+; uv recommended for fast dependency install.
@@ -23,9 +23,9 @@
 - Async‑first: avoid blocking I/O; use HA helpers; appropriate logging levels.
 
 ## Testing Guidelines
-- Automated tests: `make test` runs pytest with coverage; see `tests/README.md` for comprehensive fixture guide.
+- Automated tests: `make test` (or `pytest --cov=custom_components.ubisys --cov=custom_zha_quirks`) runs the full suite; see `tests/README.md` for fixture guidance.
 - Test fixtures: `tests/conftest.py` provides mock clusters, config entries, ZHA devices, and helper functions.
-- Coverage target: 80%+ (current: 23% baseline); prioritize calibration, config flow, and platform tests.
+- Coverage target: 80%+ (current: 58% overall); remaining gaps are mainly legacy sensor/switch platforms, advanced input monitoring edge cases, and `custom_components/ubisys/__init__.py` service helpers.
 - Manual HA testing: exercise config/option flows, cover/light commands, state updates, calibration with real hardware.
 - Prefer real hardware for quirks, calibration, and input monitoring validation.
 - Use `DEBUG` logging during development; avoid `print`; leverage structured logging (`kv()`, `info_banner()`).

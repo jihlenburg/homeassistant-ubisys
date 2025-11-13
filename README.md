@@ -616,6 +616,15 @@ make test
 
 GitHub Actions runs hassfest/HACS + lint/type/tests (HA 2024.1.*).
 
+#### Targeted unit suites
+
+- `tests/test_integration_bootstrap.py` ensures `async_setup`, `async_setup_entry`, and `async_unload_entry` wire services, discovery, and cleanup correctly.
+- `tests/test_input_monitor.py` drives the `UbisysInputMonitor` lifecycle end-to-end (reading InputActions, handling `zha_event`s, setting up/unloading monitors).
+- `tests/test_platform_wrappers.py` spins up lightweight Home Assistant doubles to exercise the cover/light/switch wrappers and the “last input event” sensor without a running HA core.
+- `tests/test_zha_quirks.py` injects minimal `zigpy`/`zhaquirks` shims so the Ubisys DeviceSetup, Ballast, and DimmerSetup quirks can be imported and validated in isolation.
+- `tests/test_device_trigger.py` verifies that device automations map physical inputs and dispatcher signals to per-button trigger types.
+- `pytest --cov=custom_components.ubisys --cov=custom_zha_quirks --cov-report=term-missing` currently reports ~58 % coverage with the bootstrap, wrappers, monitors, and quirks now under direct unit test.
+
 Device trigger examples: see docs/device_triggers_examples.md.
 
 ### Logging Controls

@@ -4,18 +4,16 @@ Tests cover the 5-phase automated calibration process with motor stall detection
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.ubisys.const import (
     CALIBRATION_MODE_ENTER,
     CALIBRATION_MODE_EXIT,
     DOMAIN,
-    STALL_DETECTION_INTERVAL,
-    STALL_DETECTION_TIME,
 )
 from custom_components.ubisys.j1_calibration import (
     _enter_calibration_mode,
@@ -23,7 +21,6 @@ from custom_components.ubisys.j1_calibration import (
     _wait_for_stall,
     async_calibrate_j1,
 )
-
 
 # =============================================================================
 # Test Constants
@@ -174,9 +171,7 @@ async def test_calibrate_service_validates_entity_id_type(
 
 
 @pytest.mark.asyncio
-async def test_calibrate_service_validates_entity_exists(
-    hass, mock_service_call
-):
+async def test_calibrate_service_validates_entity_exists(hass, mock_service_call):
     """Test that service validates entity exists in registry."""
     with patch("custom_components.ubisys.j1_calibration.er") as mock_er:
         mock_registry = MagicMock()
@@ -188,9 +183,7 @@ async def test_calibrate_service_validates_entity_exists(
 
 
 @pytest.mark.asyncio
-async def test_calibrate_service_validates_platform(
-    hass, mock_service_call
-):
+async def test_calibrate_service_validates_platform(hass, mock_service_call):
     """Test that service validates entity belongs to ubisys platform."""
     with patch("custom_components.ubisys.j1_calibration.er") as mock_er:
         mock_registry = MagicMock()
@@ -255,9 +248,7 @@ async def test_calibrate_prevents_concurrent_calibration(
                     await asyncio.sleep(0.1)
 
                     # Try to start second calibration (should fail immediately)
-                    with pytest.raises(
-                        HomeAssistantError, match="already in progress"
-                    ):
+                    with pytest.raises(HomeAssistantError, match="already in progress"):
                         await async_calibrate_j1(mock_hass, mock_service_call)
 
                     # Cancel first task to clean up

@@ -628,6 +628,14 @@ async def _async_update_from_zha(self) -> None:
 
 **Do not** poll or directly access the Zigbee device from the wrapper entity.
 
+## Testing Strategy
+
+- `tests/test_platform_wrappers.py` spins up lightweight Home Assistant doubles so the cover/light/switch wrappers and the “last input event” sensor can be instantiated, synced, and have every delegated service call exercised without a live HA core.
+- `tests/test_input_monitor.py` covers the `UbisysInputMonitor` lifecycle (cluster reads, `zha_event` correlation, dispatcher fan-out) plus setup/unload helpers.
+- `tests/test_integration_bootstrap.py` verifies `async_setup`, `async_setup_entry`, and `async_unload_entry` register services, wire discovery, and clean up properly.
+- `tests/test_zha_quirks.py` injects tiny `zigpy`/`zhaquirks` stubs, letting us import the Ubisys DeviceSetup, Ballast, and DimmerSetup clusters (plus the QuirkBuilder registration) entirely offline while verifying manufacturer-code injection behavior.
+- Run `pytest --cov=custom_components.ubisys --cov=custom_zha_quirks --cov-report=term-missing` before shipping changes; current coverage sits at ~58 % with bootstrap, wrappers, input monitoring, device triggers, and quirk modules now under direct unit test.
+
 ## Version Updates
 
 To release a new version:

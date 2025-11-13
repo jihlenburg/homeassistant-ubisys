@@ -7,6 +7,7 @@ import sys
 import types
 
 import homeassistant.components as ha_components
+
 from custom_components.ubisys.const import (
     EVENT_UBISYS_CALIBRATION_COMPLETE,
     EVENT_UBISYS_INPUT,
@@ -15,7 +16,9 @@ from custom_components.ubisys.const import (
 
 def test_async_describe_events_registers_calibration_and_input():
     # Provide lightweight psutil shim required by Home Assistant recorder import
-    sys.modules.setdefault("psutil_home_assistant", types.ModuleType("psutil_home_assistant"))
+    sys.modules.setdefault(
+        "psutil_home_assistant", types.ModuleType("psutil_home_assistant")
+    )
     # Stub HA logbook component to avoid pulling recorder/sqlalchemy dependency tree
     fake_logbook = types.ModuleType("homeassistant.components.logbook")
     fake_logbook.ACTION_CHANGE = "change"

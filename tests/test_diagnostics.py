@@ -37,6 +37,7 @@ def _install_fake_zigpy(monkeypatch):
 async def test_async_get_config_entry_diagnostics_builds_payload(monkeypatch):
     _install_fake_zigpy(monkeypatch)
     from zigpy.types import EUI64  # type: ignore[import-untyped]
+
     hass = _build_hass()
     entry = SimpleNamespace(
         title="Test J1",

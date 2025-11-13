@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.ubisys.const import DOMAIN
 from custom_components.ubisys import helpers
+from custom_components.ubisys.const import DOMAIN
 
 
 class DummyHass:
@@ -50,9 +50,7 @@ def test_extract_ieee_from_device_returns_first_match():
     device = SimpleNamespace(
         identifiers={("other", "abc"), ("zha", "00:11:22:33:44:55:66:77")}
     )
-    assert (
-        helpers.extract_ieee_from_device(device) == "00:11:22:33:44:55:66:77"
-    )
+    assert helpers.extract_ieee_from_device(device) == "00:11:22:33:44:55:66:77"
 
 
 def test_extract_ieee_from_device_returns_none():
@@ -170,9 +168,7 @@ async def test_get_entity_device_info_validates_config_entry():
     registry.async_get.return_value = entry
 
     hass = SimpleNamespace(
-        config_entries=SimpleNamespace(
-            async_get_entry=MagicMock(return_value=None)
-        )
+        config_entries=SimpleNamespace(async_get_entry=MagicMock(return_value=None))
     )
 
     with patch("custom_components.ubisys.helpers.er.async_get", return_value=registry):
@@ -204,13 +200,20 @@ async def test_get_entity_device_info_requires_model():
 @pytest.mark.asyncio
 async def test_find_zha_entity_for_device_returns_match():
     registry = MagicMock()
-    entry = SimpleNamespace(platform="zha", domain="cover", entity_id="cover.zha_device")
+    entry = SimpleNamespace(
+        platform="zha", domain="cover", entity_id="cover.zha_device"
+    )
 
-    with patch("custom_components.ubisys.helpers.er.async_get", return_value=registry), patch(
-        "custom_components.ubisys.helpers.er.async_entries_for_device",
-        return_value=[entry],
+    with (
+        patch("custom_components.ubisys.helpers.er.async_get", return_value=registry),
+        patch(
+            "custom_components.ubisys.helpers.er.async_entries_for_device",
+            return_value=[entry],
+        ),
     ):
-        entity_id = await helpers.find_zha_entity_for_device(SimpleNamespace(), "device-1", "cover")
+        entity_id = await helpers.find_zha_entity_for_device(
+            SimpleNamespace(), "device-1", "cover"
+        )
 
     assert entity_id == "cover.zha_device"
 
@@ -218,11 +221,16 @@ async def test_find_zha_entity_for_device_returns_match():
 @pytest.mark.asyncio
 async def test_find_zha_entity_for_device_handles_missing():
     registry = MagicMock()
-    with patch("custom_components.ubisys.helpers.er.async_get", return_value=registry), patch(
-        "custom_components.ubisys.helpers.er.async_entries_for_device",
-        return_value=[],
+    with (
+        patch("custom_components.ubisys.helpers.er.async_get", return_value=registry),
+        patch(
+            "custom_components.ubisys.helpers.er.async_entries_for_device",
+            return_value=[],
+        ),
     ):
-        entity_id = await helpers.find_zha_entity_for_device(SimpleNamespace(), "device-1", "cover")
+        entity_id = await helpers.find_zha_entity_for_device(
+            SimpleNamespace(), "device-1", "cover"
+        )
 
     assert entity_id is None
 
@@ -231,7 +239,8 @@ async def test_find_zha_entity_for_device_handles_missing():
 async def test_get_device_setup_cluster_delegates_to_get_cluster():
     mock_cluster = object()
     with patch(
-        "custom_components.ubisys.helpers.get_cluster", AsyncMock(return_value=mock_cluster)
+        "custom_components.ubisys.helpers.get_cluster",
+        AsyncMock(return_value=mock_cluster),
     ) as mock_get:
         hass = SimpleNamespace()
         result = await helpers.get_device_setup_cluster(hass, "00:11:22:33:44:55:66:77")
