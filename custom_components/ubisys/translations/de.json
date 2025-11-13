@@ -32,16 +32,9 @@
         "description": "Configure {device_name}.\n\n• Documentation: {docs_url}\n• Issues: {issues_url}\n\nClose this page to return to options."
       },
       "init": {
-        "title": "Ubisys {model} Options",
-        "description": "Choose what to configure for {device_name}.",
-        "data": {
-          "shade_type": "Shade Type",
-          "verbose_info_logging": "Verbose info logging",
-          "verbose_input_logging": "Verbose input event logging",
-          "turnaround_guard_time": "Guard Time (50ms units)",
-          "inactive_power_threshold": "Inactive Power Threshold (mW)",
-          "startup_steps": "Startup Steps (AC waves)",
-          "additional_steps": "Additional Steps (%)"
+        "menu_options": {
+          "about": "Über & Dokumentation",
+          "configure": "Gerät konfigurieren"
         }
       },
       "d1_options": {
