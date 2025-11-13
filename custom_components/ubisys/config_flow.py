@@ -348,7 +348,13 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
             if device_entry.manufacturer != MANUFACTURER:
                 continue
 
-            if device_entry.model not in SUPPORTED_MODELS:
+            # Extract model (remove any parenthetical suffixes like "(5502)")
+            # ZHA may report "J1 (5502)" but we want just "J1"
+            model = device_entry.model
+            if model and "(" in model:
+                model = model.split("(")[0].strip()
+
+            if model not in SUPPORTED_MODELS:
                 continue
 
             # Extract IEEE from identifiers
@@ -373,9 +379,8 @@ class UbisysConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignor
             available[device_ieee] = {
                 "device_id": device_entry.id,
                 "manufacturer": device_entry.manufacturer,
-                "model": device_entry.model,
-                "name": device_entry.name
-                or f"{device_entry.manufacturer} {device_entry.model}",
+                "model": model,  # Use normalized model name
+                "name": device_entry.name or f"{device_entry.manufacturer} {model}",
             }
 
         return available

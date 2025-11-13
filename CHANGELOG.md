@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Config flow now handles ZHA device models with parenthetical suffixes (e.g., "J1 (5502)")
+
 ## [1.2.1] - 2025-11-13
 
 ### Added
