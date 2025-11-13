@@ -64,9 +64,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install \
             homeassistant==2024.1.6 \
+            async-timeout \
             pytest pytest-asyncio pytest-cov \
             pytest-homeassistant-custom-component
       - name: Run tests
         env:
-          PYTHONPATH: custom_components
-        run: pytest -q --cov=custom_components/ubisys --cov-report=term-missing
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+          PYTHONPATH: .
+        run: pytest -q --assert=plain
