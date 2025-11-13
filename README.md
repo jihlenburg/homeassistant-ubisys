@@ -658,11 +658,19 @@ Contributions are welcome! Please:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## ⚖️ Legal Disclaimer
+
+**This integration is not affiliated with, endorsed by, or sponsored by Ubisys Elektronik GmbH.**
+
+All Ubisys trademarks, logos, and brand assets are the intellectual property of Ubisys Elektronik GmbH. This is an independent, community-developed integration for Home Assistant and is provided "as-is" without warranty of any kind.
+
+The use of Ubisys trademarks and logos in this project is solely for the purpose of identifying compatibility with Ubisys devices and does not imply any official relationship or endorsement.
+
 ## 🙏 Acknowledgments
 
 - Home Assistant community
 - ZHA integration maintainers
-- Ubisys for their excellent Zigbee devices
+- Ubisys Elektronik GmbH for their excellent Zigbee devices
 
 ## 📞 Support
 

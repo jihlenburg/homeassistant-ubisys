@@ -641,11 +641,15 @@ async def _async_update_from_zha(self) -> None:
 To release a new version:
 
 1. Update version in `custom_components/ubisys/manifest.json`
-2. Update badges in `README.md` if needed
-3. Commit with message: `chore: bump version to X.Y.Z`
-4. Tag: `git tag -a vX.Y.Z -m "Release version X.Y.Z"`
-5. Push tag: `git push origin vX.Y.Z`
-6. HACS will auto-detect the new release
+2. Move "Unreleased" items in `CHANGELOG.md` to new version section `[X.Y.Z] - YYYY-MM-DD`
+3. Update badges in `README.md` if needed
+4. Commit with message: `chore: bump version to X.Y.Z`
+5. Tag: `git tag -a vX.Y.Z -m "Release version X.Y.Z"`
+6. Push tag: `git push origin vX.Y.Z`
+7. **Create GitHub Release**: `./scripts/create_release.sh vX.Y.Z` (requires `gh` CLI)
+   - This extracts release notes from CHANGELOG.md and creates a GitHub Release
+   - Alternatively, create manually at: https://github.com/jihlenburg/homeassistant-ubisys/releases/new
+8. HACS will auto-detect the new release and "Read release announcement" will link to it
 
 ## Home Assistant Integration Requirements
 

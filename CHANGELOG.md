@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2025-11-13
+
 ### Added
 - Options Flow: "About" menu step with links to docs/issues and device info.
 - Diagnostics: redacted config entry/device info, ZHA endpoints/clusters snapshot, last calibration results.
