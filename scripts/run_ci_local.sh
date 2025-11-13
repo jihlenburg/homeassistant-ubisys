@@ -148,13 +148,13 @@ fi
 
 echo "[ci] Running linters and type checks"
 if ${FIX_MODE}; then
-  black custom_components/ubisys custom_zha_quirks
+  black .
   isort .
 else
-  black --check custom_components/ubisys custom_zha_quirks
+  black --check .
   isort --check-only .
 fi
-flake8 custom_components/ubisys
+flake8 .
 mypy
 
 if [[ -n "${HA_VERSION}" ]]; then

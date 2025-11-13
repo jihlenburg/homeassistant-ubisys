@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, Dict, Iterable, Mapping
+from typing import Any, Dict, Mapping
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
