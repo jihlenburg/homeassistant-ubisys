@@ -92,9 +92,6 @@ from zigpy.zcl.foundation import ZCLAttributeDef
 
 # Import shared Ubisys components
 from custom_zha_quirks.ubisys_common import (
-    UBISYS_ATTR_INPUT_ACTIONS,
-    UBISYS_ATTR_INPUT_CONFIGS,
-    UBISYS_DEVICE_SETUP_CLUSTER_ID,
     UBISYS_MANUFACTURER_CODE,
     UbisysDeviceSetup,
 )
