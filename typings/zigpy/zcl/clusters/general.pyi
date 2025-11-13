@@ -14,4 +14,3 @@ class LevelControl:
 
 class OnOff:
     cluster_id: int
-

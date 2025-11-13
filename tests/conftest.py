@@ -171,10 +171,14 @@ def mock_device_setup_cluster():
 
     # Mock with manufacturer code auto-injection
     cluster.write_attributes = AsyncMock(return_value=[{}])
-    cluster.read_attributes = AsyncMock(return_value=[{
-        0x0000: b"",  # input_configurations
-        0x0001: b"\x48\x41\x01\x00\x01\x02\x00\x01\x06\x00\x02\x00",  # input_actions
-    }])
+    cluster.read_attributes = AsyncMock(
+        return_value=[
+            {
+                0x0000: b"",  # input_configurations
+                0x0001: b"\x48\x41\x01\x00\x01\x02\x00\x01\x06\x00\x02\x00",  # input_actions
+            }
+        ]
+    )
 
     return cluster
 
@@ -306,7 +310,7 @@ def mock_async_zcl_command():
             await some_function_that_uses_zcl_command()
             mock_async_zcl_command.assert_called()
     """
-    with patch('custom_components.ubisys.helpers.async_zcl_command') as mock:
+    with patch("custom_components.ubisys.helpers.async_zcl_command") as mock:
         mock.return_value = None
         yield mock
 
@@ -318,7 +322,7 @@ def mock_async_write_and_verify_attrs():
     This fixture patches the write-and-verify helper to avoid actual
     Zigbee attribute operations during tests.
     """
-    with patch('custom_components.ubisys.helpers.async_write_and_verify_attrs') as mock:
+    with patch("custom_components.ubisys.helpers.async_write_and_verify_attrs") as mock:
         mock.return_value = None
         yield mock
 

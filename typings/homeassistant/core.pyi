@@ -3,21 +3,42 @@ from __future__ import annotations
 from typing import Any, Callable, Mapping, Protocol
 
 class _Bus(Protocol):
-    def async_listen(self, event_type: str, listener: Callable[[Any], None]) -> Callable[[], None]: ...
-    def async_listen_once(self, event_type: str, listener: Callable[[Any], None]) -> None: ...
+    def async_listen(
+        self, event_type: str, listener: Callable[[Any], None]
+    ) -> Callable[[], None]: ...
+    def async_listen_once(
+        self, event_type: str, listener: Callable[[Any], None]
+    ) -> None: ...
 
 class _States(Protocol):
     def get(self, entity_id: str) -> Any: ...
 
 class _Services(Protocol):
-    async def async_call(self, domain: str, service: str, data: Mapping[str, Any], *, blocking: bool = ...) -> Any: ...
+    async def async_call(
+        self,
+        domain: str,
+        service: str,
+        data: Mapping[str, Any],
+        *,
+        blocking: bool = ...,
+    ) -> Any: ...
 
 class _ConfigEntries(Protocol):
-    async def async_forward_entry_setups(self, entry: Any, platforms: list[Any]) -> Any: ...
+    async def async_forward_entry_setups(
+        self, entry: Any, platforms: list[Any]
+    ) -> Any: ...
     async def async_unload_platforms(self, entry: Any, platforms: list[Any]) -> Any: ...
     def async_entries(self, domain: str | None = ...) -> list[Any]: ...
+
     class Flow(Protocol):
-        async def async_init(self, domain: str, *, context: Mapping[str, Any] | None = ..., data: Mapping[str, Any] | None = ...) -> Any: ...
+        async def async_init(
+            self,
+            domain: str,
+            *,
+            context: Mapping[str, Any] | None = ...,
+            data: Mapping[str, Any] | None = ...,
+        ) -> Any: ...
+
     flow: Flow
 
 class HomeAssistant:
@@ -30,4 +51,3 @@ class HomeAssistant:
     def __init__(self) -> None: ...
 
 def callback(func: Callable[..., Any]) -> Callable[..., Any]: ...
-

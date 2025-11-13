@@ -5,4 +5,3 @@ from typing import Any
 class Ballast:
     cluster_id: int
     attributes: dict[int, Any]
-

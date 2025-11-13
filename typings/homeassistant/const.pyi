@@ -10,4 +10,3 @@ class Platform(Enum):
     BUTTON = "button"
 
 EVENT_HOMEASSISTANT_STARTED: str
-
