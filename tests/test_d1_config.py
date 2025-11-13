@@ -3,30 +3,33 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any, Dict, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.ubisys.d1_config import (
+from custom_components.ubisys.const import (
     BALLAST_ATTR_MAX_LEVEL,
     BALLAST_ATTR_MIN_LEVEL,
     DIMMER_SETUP_ATTR_MODE,
     UBISYS_MANUFACTURER_CODE,
+)
+from custom_components.ubisys.d1_config import (
     async_configure_ballast,
     async_configure_inputs,
     async_configure_phase_mode,
 )
 
 
-def _make_hass(entity_state: str = "off"):
+def _make_hass(entity_state: str = "off") -> SimpleNamespace:
     """Return a lightweight hass surrogate with state + service helpers."""
 
-    def _get_state(entity_id: str):
-        return SimpleNamespace(state=entity_state)
+    def _get_state(entity_id: str) -> SimpleNamespace:
+        return SimpleNamespace(entity_id=entity_id, state=entity_state)
 
     hass = SimpleNamespace()
-    hass.data = {}
+    hass.data = cast(Dict[str, Any], {})
     hass.states = SimpleNamespace(get=_get_state)
     hass.services = SimpleNamespace(async_call=AsyncMock())
     return hass

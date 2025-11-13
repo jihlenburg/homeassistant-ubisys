@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import Any, Dict, Tuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,24 +17,23 @@ from custom_components.ubisys.const import DOMAIN
 class DummyHass:
     """Very small hass-like container for testing logging flag helpers."""
 
-    def __init__(self, domain_data: dict | None = None) -> None:
-        self.data = domain_data or {}
+    def __init__(self, domain_data: Dict[str, Any] | None = None) -> None:
+        self.data: Dict[str, Any] | None = domain_data or {}
 
 
 class FakeCluster:
     """Simple Zigbee cluster double used for async_zcl_command tests."""
 
     def __init__(self, fail_times: int = 0) -> None:
-        self.calls: list[tuple[str, tuple, dict]] = []
+        self.calls: list[Tuple[str, Tuple[Any, ...], Dict[str, Any]]] = []
         self._fail_times = fail_times
 
-    async def command(self, command: str, *args, **kwargs):
+    async def command(self, command: str, *args: Any, **kwargs: Any) -> None:
         self.calls.append((command, args, kwargs))
         if self._fail_times > 0:
             self._fail_times -= 1
             raise RuntimeError("boom")
         await asyncio.sleep(0)
-        return None
 
 
 def test_extract_model_from_device_handles_suffix():

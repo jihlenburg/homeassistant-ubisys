@@ -96,7 +96,7 @@ def ubisys_quirk_modules():
 
     register("zigpy.zcl.clusters", types.ModuleType("zigpy.zcl.clusters"))
 
-    def simple_cluster(name: str):
+    def simple_cluster(name: str) -> type:
         return type(name, (), {"cluster_id": 0x0001})
 
     general = register(

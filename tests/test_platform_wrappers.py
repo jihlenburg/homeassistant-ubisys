@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any, Dict, Iterable, Mapping
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -20,14 +21,16 @@ from custom_components.ubisys.const import (
 
 class DummyStates:
     def __init__(self) -> None:
-        self._states: dict[str, SimpleNamespace] = {}
+        self._states: Dict[str, SimpleNamespace] = {}
 
     def get(self, entity_id: str) -> SimpleNamespace | None:
         return self._states.get(entity_id)
 
-    async def async_set(self, entity_id: str, state: str, attributes=None):
+    async def async_set(
+        self, entity_id: str, state: str, attributes: Mapping[str, Any] | None = None
+    ) -> None:
         self._states[entity_id] = SimpleNamespace(
-            state=state, attributes=attributes or {}
+            state=state, attributes=dict(attributes or {})
         )
 
 
@@ -36,9 +39,9 @@ class DummyHass(SimpleNamespace):
         super().__init__()
         self.states = DummyStates()
         self.services = SimpleNamespace(async_call=AsyncMock())
-        self.data = {}
+        self.data: Dict[str, Any] = {}
 
-    def async_create_task(self, coro):
+    def async_create_task(self, coro: Any) -> Any:
         # For these tests we don't need to schedule background work.
         return coro
 
