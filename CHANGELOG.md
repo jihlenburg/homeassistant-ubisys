@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.5] - 2025-11-14
+
+### Fixed
+- Service registration now includes schemas for HA 2025.x compatibility (fixes "missing 1 required positional argument" error)
+- All services (calibrate_j1, tune_j1_advanced, configure_d1_phase_mode, configure_d1_ballast) now work correctly
+
 ## [1.2.4] - 2025-11-13
 
 ### Fixed

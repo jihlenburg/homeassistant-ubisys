@@ -150,6 +150,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         DOMAIN,
         SERVICE_CALIBRATE,
         async_calibrate_j1,
+        schema=cv.make_entity_service_schema(
+            {
+                vol.Optional("test_mode", default=False): cv.boolean,
+            }
+        ),
     )
     # Advanced J1 tuning
     try:
@@ -162,6 +167,17 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             DOMAIN,
             SERVICE_TUNE_J1_ADVANCED,
             async_tune_j1,
+            schema=cv.make_entity_service_schema(
+                {
+                    vol.Optional("turnaround_guard_time"): cv.positive_int,
+                    vol.Optional("inactive_power_threshold"): cv.positive_int,
+                    vol.Optional("startup_steps"): cv.positive_int,
+                    vol.Optional("additional_steps"): vol.All(
+                        vol.Coerce(int), vol.Range(min=0, max=100)
+                    ),
+                    vol.Optional("input_actions"): cv.string,
+                }
+            ),
         )
     except Exception:
         _LOGGER.debug("Unable to register J1 tuning service", exc_info=True)
@@ -174,6 +190,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         DOMAIN,
         SERVICE_CONFIGURE_D1_PHASE_MODE,
         async_configure_phase_mode,
+        schema=cv.make_entity_service_schema(
+            {
+                vol.Required("phase_mode"): vol.In(["automatic", "forward", "reverse"]),
+            }
+        ),
     )
 
     _LOGGER.debug("Registering D1 ballast service: %s", SERVICE_CONFIGURE_D1_BALLAST)
@@ -181,6 +202,16 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         DOMAIN,
         SERVICE_CONFIGURE_D1_BALLAST,
         async_configure_ballast,
+        schema=cv.make_entity_service_schema(
+            {
+                vol.Optional("min_level"): vol.All(
+                    vol.Coerce(int), vol.Range(min=1, max=254)
+                ),
+                vol.Optional("max_level"): vol.All(
+                    vol.Coerce(int), vol.Range(min=1, max=254)
+                ),
+            }
+        ),
     )
 
     # D1 inputs are configured via Options Flow presets (micro-code). Service removed.
