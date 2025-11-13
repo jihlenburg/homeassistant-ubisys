@@ -47,9 +47,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: hacs/action@main
+      - name: HACS validation
+        uses: hacs/action@main
         with:
           category: integration
+          # Repository topics configured: home-assistant, hacs, homeassistant-integration, zigbee, ubisys, custom-component
 
   tests:
     runs-on: ubuntu-latest
