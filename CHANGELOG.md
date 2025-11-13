@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.6] - 2025-11-14
+
+### Fixed
+- Service registration schemas corrected (use vol.Schema instead of cv.make_entity_service_schema)
+- Fixes "missing 1 required positional argument: 'call'" error in HA 2025.x
+- All services now work correctly: calibrate_j1, tune_j1_advanced, configure_d1_phase_mode, configure_d1_ballast
+
 ## [1.2.5] - 2025-11-14
 
 ### Fixed
