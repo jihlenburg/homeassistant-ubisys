@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from importlib import import_module
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 
-from importlib import import_module
 from custom_components.ubisys.const import (
     DOMAIN,
     SERVICE_CALIBRATE,
