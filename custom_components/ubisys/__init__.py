@@ -643,7 +643,9 @@ async def _cleanup_orphaned_ubisys_device(
         # Check if device has any remaining config entries
         updated_device = device_registry.async_get(orphaned_device.id)
         if updated_device:
-            remaining_entries = getattr(updated_device, 'config_entries', set())
+            remaining_entries: set[str] = getattr(
+                updated_device, "config_entries", set()
+            )
             if not remaining_entries:
                 # Device has no config entries - Home Assistant should garbage-collect it
                 # We don't need to explicitly delete it
