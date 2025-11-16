@@ -65,6 +65,7 @@ except Exception:  # Older HA versions may not provide this helper
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import (
+    CONF_DEVICE_ID,
     DOMAIN,
     MANUFACTURER,
     OPTION_VERBOSE_INFO_LOGGING,
@@ -472,23 +473,25 @@ async def _ensure_device_entry(
 ) -> None:
     """Ensure device entry exists and is properly configured.
 
-    This explicitly creates or updates the device entry to prevent entities
-    from linking to deleted devices when re-configuring.
+    This finds the existing ZHA device and links our config entry to it,
+    rather than creating a separate Ubisys device. This is critical for
+    the wrapper architecture to work - wrapper entities need to find ZHA
+    entities on the same device.
 
-    The Bug This Fixes:
-        Without explicit device creation, entities use device_info to link to devices.
-        If a deleted device with matching identifier exists, HA links entities to that
-        deleted device instead of creating a new one. This causes:
-        - Entities to appear orphaned in UI
-        - Entities to have wrong device name
-        - Device to stay in "deleted" state
+    The Architecture:
+        Ubisys integrates with ZHA-paired devices. Multiple integrations
+        (ZHA + Ubisys) share a single device entry by:
+        1. ZHA creates device with identifier ("zha", ieee_address)
+        2. Ubisys finds that device and adds its config entry to it
+        3. Ubisys adds identifier ("ubisys", ieee_address) via merge
+        4. Both integrations' entities now live on the same device
 
-    How This Fixes It:
-        By explicitly calling async_get_or_create, we ensure:
-        1. If device exists (active or deleted), it's updated and restored
-        2. If no device exists, a new one is created
-        3. Device is linked to this config entry
-        4. Device has correct metadata (name, model, manufacturer)
+    Why This Matters:
+        - Wrapper entities search for ZHA entities by device_id
+        - If entities are on different devices, wrapper can't find ZHA entity
+        - Calibration and other features fail without ZHA entity access
+        - Device registry matches identifiers as exact tuples
+        - ("zha", ieee) != ("ubisys", ieee) → separate devices created
 
     Args:
         hass: Home Assistant instance
@@ -496,7 +499,7 @@ async def _ensure_device_entry(
 
     Example:
         >>> await _ensure_device_entry(hass, entry)
-        # Device now exists and is active, entities will link correctly
+        # Device found and linked, wrapper can access ZHA entities
     """
     device_registry = dr.async_get(hass)
     device_ieee = entry.data["device_ieee"]
@@ -504,15 +507,55 @@ async def _ensure_device_entry(
     model = entry.data["model"]
     name = entry.data["name"]
 
-    # Create or update device entry
-    # This will restore a deleted device if one exists with matching identifier
-    device = device_registry.async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, device_ieee)},
-        manufacturer=manufacturer,
-        model=model,
-        name=name,
-    )
+    # First, try to find existing ZHA device by identifier
+    # ZHA uses ("zha", ieee_address) as device identifier
+    existing_device = None
+    for device in device_registry.devices.values():
+        for identifier_domain, identifier_value in device.identifiers:
+            if identifier_domain == "zha" and identifier_value == device_ieee:
+                existing_device = device
+                break
+        if existing_device:
+            break
+
+    if existing_device:
+        # ZHA device found - update it to include our config entry
+        _LOGGER.debug(
+            "Found existing ZHA device id=%s for ieee=%s, linking config entry",
+            existing_device.id,
+            device_ieee,
+        )
+
+        # Update device to add our config entry and ubisys identifier
+        device = device_registry.async_update_device(
+            existing_device.id,
+            add_config_entry=entry.entry_id,
+            merge_identifiers={(DOMAIN, device_ieee)},
+        )
+
+        # Update config entry data to store correct device_id
+        # This ensures platforms can find the correct device
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, CONF_DEVICE_ID: existing_device.id},
+        )
+    else:
+        # No ZHA device found - create standalone device (fallback)
+        # This shouldn't normally happen since Ubisys devices must be
+        # paired with ZHA first, but we handle it gracefully
+        _LOGGER.warning(
+            "No ZHA device found for ieee=%s, creating standalone device. "
+            "This is unexpected - Ubisys devices should be paired with ZHA first.",
+            device_ieee,
+        )
+
+        device = device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, device_ieee)},
+            manufacturer=manufacturer,
+            model=model,
+            name=name,
+        )
 
     _LOGGER.debug(
         "Ensured device entry exists: id=%s, ieee=%s, name=%s",
@@ -520,6 +563,100 @@ async def _ensure_device_entry(
         device_ieee,
         name,
     )
+
+    # Clean up any orphaned Ubisys devices from v1.2.7
+    # v1.2.7 incorrectly created separate Ubisys devices instead of sharing ZHA device
+    await _cleanup_orphaned_ubisys_device(hass, entry, device.id, device_ieee)
+
+
+async def _cleanup_orphaned_ubisys_device(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    correct_device_id: str,
+    device_ieee: str,
+) -> None:
+    """Clean up orphaned Ubisys device created by v1.2.7.
+
+    v1.2.7 Bug:
+        Used async_get_or_create with ("ubisys", ieee) identifier, creating
+        a separate Ubisys device instead of linking to ZHA device.
+
+    This creates:
+        - Orphaned Ubisys device with no entities (entities migrated to ZHA device)
+        - Clutters device registry UI
+        - Config entry still linked to orphaned device
+
+    Solution:
+        1. Find device with ("ubisys", ieee) identifier that isn't the correct device
+        2. Remove our config entry from that device
+        3. If device has no other config entries, Home Assistant will garbage-collect it
+
+    Args:
+        hass: Home Assistant instance
+        entry: Our config entry
+        correct_device_id: The device_id we should be using (ZHA device)
+        device_ieee: IEEE address for identification
+
+    Example:
+        >>> await _cleanup_orphaned_ubisys_device(hass, entry, zha_device.id, ieee)
+        # Orphaned device cleaned up, only ZHA device remains
+    """
+    device_registry = dr.async_get(hass)
+
+    # Find orphaned Ubisys device (has our identifier but is not the correct device)
+    orphaned_device = None
+    for device in device_registry.devices.values():
+        # Skip the correct device
+        if device.id == correct_device_id:
+            continue
+
+        # Check if this device has ("ubisys", ieee) identifier
+        for identifier_domain, identifier_value in device.identifiers:
+            if identifier_domain == DOMAIN and identifier_value == device_ieee:
+                orphaned_device = device
+                break
+
+        if orphaned_device:
+            break
+
+    if not orphaned_device:
+        # No orphaned device found - clean state
+        return
+
+    _LOGGER.info(
+        "Found orphaned Ubisys device from v1.2.7: id=%s, cleaning up",
+        orphaned_device.id,
+    )
+
+    # Remove our config entry from the orphaned device
+    # This is safe because we've already linked it to the correct ZHA device
+    try:
+        device_registry.async_update_device(
+            orphaned_device.id,
+            remove_config_entry_id=entry.entry_id,
+        )
+        _LOGGER.debug(
+            "Removed config entry from orphaned device id=%s",
+            orphaned_device.id,
+        )
+
+        # Check if device has any remaining config entries
+        updated_device = device_registry.async_get(orphaned_device.id)
+        if updated_device and not updated_device.config_entries:
+            # Device has no config entries - Home Assistant should garbage-collect it
+            # We don't need to explicitly delete it
+            _LOGGER.debug(
+                "Orphaned device id=%s has no config entries, will be garbage-collected",
+                orphaned_device.id,
+            )
+
+    except Exception as err:
+        # Log but don't fail - this is cleanup, not critical
+        _LOGGER.warning(
+            "Failed to clean up orphaned device id=%s: %s",
+            orphaned_device.id,
+            err,
+        )
 
 
 async def _hide_zha_entity(hass: HomeAssistant, entry: ConfigEntry) -> None:

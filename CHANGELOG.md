@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.8] - 2025-11-16
+
+### Fixed
+- Critical device registry bug where v1.2.7 created separate Ubisys and ZHA devices instead of sharing one device
+- Wrapper entities can now find ZHA entities (previously failed because entities were on different devices)
+- Calibration and other features now work correctly (previously failed with "Unknown error")
+- `_ensure_device_entry()` now searches for existing ZHA device and links Ubisys config entry to it
+- Device identifiers properly merged: both ("zha", ieee) and ("ubisys", ieee) on same device
+
+### Technical Details
+- Home Assistant's device registry matches identifiers as exact tuples
+- v1.2.7 used `("ubisys", ieee)` which created a NEW device separate from ZHA's `("zha", ieee)` device
+- v1.2.8 searches device registry for existing ZHA device and uses `async_update_device()` to link both integrations
+- This is the correct multi-integration device pattern: both ZHA and Ubisys share one physical device entry
+
+### Added
+- Automatic cleanup of orphaned Ubisys devices created by v1.2.7
+- `_cleanup_orphaned_ubisys_device()` removes config entry from orphaned devices
+- Home Assistant will garbage-collect empty devices automatically
+
+### Migration Note
+- Users upgrading from v1.2.7: orphaned Ubisys devices are automatically cleaned up
+- No manual intervention required - cleanup happens during first startup with v1.2.8
+- Cleanup is non-destructive and logged at INFO level
+
 ## [1.2.7] - 2025-11-16
 
 ### Fixed
