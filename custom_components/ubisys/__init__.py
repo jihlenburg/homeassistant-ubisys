@@ -311,6 +311,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     This is called when a device is discovered or configured manually.
     It creates our wrapper entities and hides the underlying ZHA entities.
+
+    Bug Fix (v1.2.7):
+        Explicitly creates device entry to prevent entities from linking to
+        deleted devices when re-configuring. Also cleans up orphaned entities
+        from previous configurations.
     """
     _LOGGER.debug("Setting up Ubisys config entry: %s", entry.entry_id)
 
@@ -318,6 +323,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # This makes device info (IEEE, model, etc.) accessible to platforms
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = entry.data
+
+    device_ieee = entry.data["device_ieee"]
+
+    # BUGFIX: Clean up orphaned entities from previous configurations
+    # This prevents entity ID conflicts and ensures clean state
+    orphaned_count = await _cleanup_orphaned_entities(hass, device_ieee)
+    if orphaned_count > 0:
+        _LOGGER.info(
+            "Cleaned up %d orphaned entities for device %s",
+            orphaned_count,
+            device_ieee,
+        )
+
+    # BUGFIX: Explicitly create/restore device entry
+    # This ensures entities link to an active device, not a deleted one
+    await _ensure_device_entry(hass, entry)
 
     # Set up platforms (cover for J1, light for D1, button for calibration)
     # This creates the actual entities that users interact with
@@ -338,7 +359,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
+    """Unload a config entry.
+
+    Bug Fix (v1.2.7):
+        Ensures proper cleanup of entities and device when config is removed.
+    """
     _LOGGER.debug("Unloading Ubisys config entry: %s", entry.entry_id)
 
     # Unhide the original ZHA entity
@@ -354,6 +379,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop(entry.entry_id)
         _recompute_verbose_flags(hass)
 
+        # Clean up any remaining orphaned entities for this device
+        # This handles edge cases where entities weren't properly removed
+        device_ieee = entry.data.get("device_ieee")
+        if device_ieee:
+            orphaned_count = await _cleanup_orphaned_entities(hass, device_ieee)
+            if orphaned_count > 0:
+                _LOGGER.debug(
+                    "Cleaned up %d orphaned entities during unload",
+                    orphaned_count,
+                )
+
     return bool(unload_ok)
 
 
@@ -366,6 +402,124 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         pass
 
     return True
+
+
+async def _cleanup_orphaned_entities(
+    hass: HomeAssistant,
+    device_ieee: str,
+) -> int:
+    """Clean up orphaned Ubisys entities for a specific device.
+
+    This removes entities that:
+    1. Belong to the Ubisys platform
+    2. Match the given device IEEE address
+    3. Have no config_entry_id (orphaned)
+
+    Why This Is Needed:
+        When a config entry is deleted, entities should be removed automatically.
+        However, if something goes wrong (e.g., integration bugs, HA restart during
+        deletion), entities can become orphaned with no config entry.
+
+        These "ghost" entities:
+        - Can't be managed through the UI
+        - May conflict with new entity IDs
+        - Cause confusion for users
+
+    Args:
+        hass: Home Assistant instance
+        device_ieee: IEEE address of device (e.g., "00:1f:ee:00:00:00:68:a5")
+
+    Returns:
+        Number of orphaned entities removed
+
+    Example:
+        >>> removed = await _cleanup_orphaned_entities(hass, "00:1f:ee:00:00:00:68:a5")
+        >>> _LOGGER.info("Removed %d orphaned entities", removed)
+    """
+    entity_registry = er.async_get(hass)
+
+    # Find orphaned entities for this device
+    orphaned: list[str] = []
+    for entity in entity_registry.entities.values():
+        # Only check Ubisys entities
+        if entity.platform != DOMAIN:
+            continue
+
+        # Check if entity belongs to this device (by IEEE in unique_id)
+        if not entity.unique_id or not entity.unique_id.startswith(device_ieee):
+            continue
+
+        # Check if orphaned (no config entry)
+        if entity.config_entry_id is None:
+            orphaned.append(entity.entity_id)
+            _LOGGER.debug(
+                "Found orphaned entity: %s (unique_id: %s)",
+                entity.entity_id,
+                entity.unique_id,
+            )
+
+    # Remove orphaned entities
+    for entity_id in orphaned:
+        entity_registry.async_remove(entity_id)
+        _LOGGER.debug("Removed orphaned entity: %s", entity_id)
+
+    return len(orphaned)
+
+
+async def _ensure_device_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> None:
+    """Ensure device entry exists and is properly configured.
+
+    This explicitly creates or updates the device entry to prevent entities
+    from linking to deleted devices when re-configuring.
+
+    The Bug This Fixes:
+        Without explicit device creation, entities use device_info to link to devices.
+        If a deleted device with matching identifier exists, HA links entities to that
+        deleted device instead of creating a new one. This causes:
+        - Entities to appear orphaned in UI
+        - Entities to have wrong device name
+        - Device to stay in "deleted" state
+
+    How This Fixes It:
+        By explicitly calling async_get_or_create, we ensure:
+        1. If device exists (active or deleted), it's updated and restored
+        2. If no device exists, a new one is created
+        3. Device is linked to this config entry
+        4. Device has correct metadata (name, model, manufacturer)
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry for this device
+
+    Example:
+        >>> await _ensure_device_entry(hass, entry)
+        # Device now exists and is active, entities will link correctly
+    """
+    device_registry = dr.async_get(hass)
+    device_ieee = entry.data["device_ieee"]
+    manufacturer = entry.data.get("manufacturer", MANUFACTURER)
+    model = entry.data["model"]
+    name = entry.data["name"]
+
+    # Create or update device entry
+    # This will restore a deleted device if one exists with matching identifier
+    device = device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, device_ieee)},
+        manufacturer=manufacturer,
+        model=model,
+        name=name,
+    )
+
+    _LOGGER.debug(
+        "Ensured device entry exists: id=%s, ieee=%s, name=%s",
+        device.id,
+        device_ieee,
+        name,
+    )
 
 
 async def _hide_zha_entity(hass: HomeAssistant, entry: ConfigEntry) -> None:

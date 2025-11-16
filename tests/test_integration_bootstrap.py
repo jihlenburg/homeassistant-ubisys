@@ -63,7 +63,11 @@ async def test_async_setup_entry_stores_data_and_hides_zha(hass_full, monkeypatc
     hass.config_entries.async_forward_entry_setups = AsyncMock()
 
     hide = AsyncMock()
+    cleanup = AsyncMock(return_value=0)  # Mock cleanup to return 0 orphaned entities
+    ensure_device = AsyncMock()  # Mock device creation
     monkeypatch.setattr(ubisys, "_hide_zha_entity", hide)
+    monkeypatch.setattr(ubisys, "_cleanup_orphaned_entities", cleanup)
+    monkeypatch.setattr(ubisys, "_ensure_device_entry", ensure_device)
 
     entry = MagicMock()
     entry.entry_id = "entry42"
@@ -77,6 +81,10 @@ async def test_async_setup_entry_stores_data_and_hides_zha(hass_full, monkeypatc
     entry.async_on_unload = MagicMock()
 
     await ubisys.async_setup_entry(hass, entry)
+
+    # Verify new cleanup and device creation were called
+    cleanup.assert_awaited_once_with(hass, "00:11")
+    ensure_device.assert_awaited_once_with(hass, entry)
 
     hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
         entry, ubisys.PLATFORMS
@@ -104,14 +112,17 @@ async def test_async_unload_entry_unhides_and_unloads(hass_full, monkeypatch):
 
     unhide = AsyncMock()
     unload_monitor = AsyncMock()
+    cleanup = AsyncMock(return_value=0)  # Mock cleanup
     monkeypatch.setattr(ubisys, "_unhide_zha_entity", unhide)
     monkeypatch.setattr(ubisys, "async_unload_input_monitoring", unload_monitor)
+    monkeypatch.setattr(ubisys, "_cleanup_orphaned_entities", cleanup)
     hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
 
     assert await ubisys.async_unload_entry(hass, entry)
 
     unhide.assert_awaited_once_with(hass, entry)
     unload_monitor.assert_awaited_once_with(hass)
+    cleanup.assert_awaited_once_with(hass, "00:11")  # Verify cleanup was called
     hass.config_entries.async_unload_platforms.assert_awaited_once_with(
         entry, ubisys.PLATFORMS
     )
