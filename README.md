@@ -1,698 +1,337 @@
 # Ubisys Zigbee Devices for Home Assistant
 
 [![CI](https://github.com/jihlenburg/homeassistant-ubisys/actions/workflows/ci.yml/badge.svg)](https://github.com/jihlenburg/homeassistant-ubisys/actions/workflows/ci.yml)
-
-Docs home: docs/index.md
-
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](https://github.com/jihlenburg/homeassistant-ubisys)
+[![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+[![Version](https://img.shields.io/badge/version-1.2.6-blue.svg)](https://github.com/jihlenburg/homeassistant-ubisys/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A complete Home Assistant integration for Ubisys Zigbee devices, providing enhanced support for window covering controllers (J1) and universal dimmers (D1) with custom ZHA quirks, auto-discovery, smart feature filtering, automated calibration, and manufacturer-specific configuration services.
+**Smart feature filtering for Ubisys Zigbee window coverings, dimmers, and switches** — Show only the controls that match your device's capabilities.
+
+📚 **[Documentation](docs/index.md)** | 🚀 **[Quick Start](#-quick-start)** | 🛠️ **[Supported Devices](#%EF%B8%8F-supported-devices)** | 💬 **[Community](https://github.com/jihlenburg/homeassistant-ubisys/discussions)**
 
 ---
 
-## 🎯 At a Glance
+## 🎯 Why Use This Integration?
 
-### The Problem
+**The Problem:** Home Assistant's default ZHA shows *all* window covering controls for every blind — confusing tilt sliders on roller shades that don't tilt, no guidance on which controls actually work for your shade type.
 
-Home Assistant's default ZHA integration shows **all** window covering controls for every blind, regardless of type:
-- **Roller shades** get confusing tilt controls (they don't tilt!)
-- **Venetian blinds** show tilt controls, but you have to know they exist
-- **No guidance** on which controls work for your specific shade type
+**The Solution:** This integration filters controls based on your actual shade type:
 
-### The Solution
+| Your Shade Type | What You See | What's Hidden |
+|-----------------|--------------|---------------|
+| Roller / Cellular / Vertical | Open, Close, Stop, Position | ❌ Tilt controls |
+| Venetian (indoor/outdoor) | Position **+** Tilt | ✅ All controls |
 
-This integration **filters controls** based on your actual shade type:
-
-| Shade Type | Position Control | Tilt Control | What You See |
-|------------|------------------|--------------|--------------|
-| Roller / Cellular / Vertical | ✅ | ❌ | Open, Close, Stop, Position slider |
-| Venetian (interior/exterior) | ✅ | ✅ | Position slider + Tilt slider |
-
-**Plus**: One-click calibration button, auto-discovery, and smart feature filtering.
-
-### Quick Comparison
-
-**Without this integration** (plain ZHA):
-```
-🔹 Roller Shade Entity
-   Controls: Open, Close, Stop, Position, Tilt ← Confusing!
-   Calibration: Manual YAML configuration required
-```
-
-**With this integration**:
-```
-🟢 Roller Shade Entity
-   Controls: Open, Close, Stop, Position ← Only relevant controls!
-   Calibration: Click "Calibrate" button ← Easy!
-   Shade Type: Visible in entity attributes
-```
+**Plus:** One-click calibration, auto-discovery when paired with ZHA, persistent device configuration.
 
 ---
 
 ## ✨ Features
 
-- 🔍 **Auto-Discovery** - Automatically detects J1 devices when paired with ZHA (v1.1+)
-- 🔌 **Custom ZHA Quirks** - Access manufacturer-specific attributes (total steps, tilt transition steps, configured mode)
-- 🎯 **Smart Feature Filtering** - Only show controls that match your shade type configuration
-- 🎚️ **Shade Type Support** - Roller, cellular, vertical blinds, venetian blinds, and exterior venetian blinds
-- 🔧 **Automated Calibration** - One-click calibration button on device page
-- 🏗️ **Config Flow** - Easy setup through the Home Assistant UI with guided shade type selection
-- 📦 **HACS Compatible** - Simple installation and automatic updates
-- 🔄 **State Synchronization** - Real-time updates from the underlying ZHA entity
-- 🎛️ **Single Entity UX** - See one cover entity per device (ZHA entity auto-hidden)
- - 🪪 **Logbook & Diagnostics** - Friendly logbook entries; diagnostics expose redacted device + endpoint/cluster info
- - 🛠️ **Repairs** - Actionable issues when clusters/quirks are missing
- - 🔇 **Quiet by Default** - Options to enable verbose INFO logs and per-event input logging
-
-## 🎛️ Supported Devices
-
-### Currently Supported
-
-| Device | Type | HA Platform | Status | Features |
-|--------|------|-------------|--------|----------|
-| **J1** | Window Covering Controller | `cover` | ✅ **Fully Supported** | Position, Tilt, Calibration |
-| **J1-R** | Window Covering (DIN Rail) | `cover` | ✅ **Fully Supported** | Position, Tilt, Calibration |
-| **D1** | Universal Dimmer | `light` | ✅ **Supported** | Phase Control, Ballast Config |
-| **D1-R** | Universal Dimmer (DIN Rail) | `light` | ✅ **Supported** | Phase Control, Ballast Config |
-
-### Roadmap (Planned)
-
-| Device | Type | HA Platform | Status | Notes |
-|--------|------|-------------|--------|-------|
-| **S1** | Power Switch (16A) | `switch` | 📋 **Planned** | Config Flow UI exists, quirk/platform pending |
-| **S1-R** | Power Switch (DIN Rail) | `switch` | 📋 **Planned** | Config Flow UI exists, quirk/platform pending |
-| **S2** | Dual Power Switch (500W×2) | `switch` | 📋 **Planned** | Not yet started |
-| **S2-R** | Dual Power Switch (DIN Rail) | `switch` | 📋 **Planned** | Not yet started |
-
-> **Note:** This integration fully supports Ubisys window covering devices (J1/J1-R) and universal dimmers (D1/D1-R). Switch support (S1/S2) is partially implemented (config flow UI ready) but requires quirk and platform completion. See [Known Limitations](#️-known-limitations--open-items) for details.
-
-### J1/J1-R Shade Types
-
-| Type | Features | WindowCoveringType |
-|------|----------|-------------------|
-| Roller Shade | Open, Close, Stop, Set Position | 0x00 |
-| Cellular Shade | Open, Close, Stop, Set Position | 0x00 |
-| Vertical Blind | Open, Close, Stop, Set Position | 0x04 |
-| Venetian Blind | Position + Tilt controls | 0x08 |
-| Exterior Venetian | Position + Tilt controls | 0x08 |
-
-## ⚠️ Known Limitations & Open Items
-
-### 🚧 Device Support Gaps
-
-- **S1/S1-R Power Switch** - Wrapper platform exists; advanced features and quirks are still evolving
-- **S2/S2-R Dual Power Switch** - Planned but not implemented
-  - Not included in `SWITCH_MODELS` constant
-  - No platform or quirk support
-  
-  - Reason: Requires real D1 hardware testing to understand DeviceSetup cluster format
-  - Workaround: Default input configuration works for most users
-  - Status: Phase 3 feature blocked pending hardware testing
-
-### 🔬 Hardware Validation Needed
-
-The following features exist but **require real hardware testing** for validation:
-
-- **D1 Phase Mode Configuration** - Service works but needs validation with real device
-- **D1 Ballast Manufacturer Attributes** - May have undocumented manufacturer-specific attributes
-- **J1 Calibration** - Full 5-phase stall detection tested but needs more real-world validation
-
-### 📋 Planned Features (Roadmap)
-
-**Input Monitoring Enhancements:**
-- Event entities for button presses (show last press in dashboard)
-- Binary sensors for stationary rocker switches
-- Scene-only mode (buttons trigger automations without controlling device)
-
-**J1 Window Covering:**
-- Scene support for preset positions (save/recall specific positions)
-- Position offset configuration (adjust reporting to match physical reality)
-- Speed control configuration (adjust motor speed)
-- Web-based calibration wizard (interactive step-by-step guide)
-
-**Energy Monitoring:**
-- Energy metering dashboard for S1/D1 devices (leverage 0.5% accuracy power monitoring)
-- Integration with Home Assistant Energy dashboard
-
-**Developer Experience:**
-- Unit test suite (config flow, feature filtering, service validation)
-- Integration test suite (auto-discovery, entity creation, state sync)
-- Manual testing documentation (`docs/testing.md`)
-
-**Localization:**
-- Multi-language support (currently English only)
-
-### 📝 Documentation Gaps
-
-- **S2/S2-R Configuration Guide** - Blocked until device support implemented
-- **Manual Testing Procedures** - No structured testing checklist for contributors
-- **Translations** - No translation files for non-English languages
-
-### 💡 Architectural Notes
-
-- **J1 Unused Attributes** - Technical reference documents attributes `0x1003` (LiftToTiltTransitionSteps2) and `0x1004` (TotalSteps2) which are not currently used by integration (existing calibration approach works well)
-- **Button→Service Pattern** - Calibration button delegates to service for flexibility (both UI and automation access)
-- **Wrapper Entity Architecture** - Entities delegate to ZHA rather than talking directly to Zigbee (leverages ZHA's excellent communication layer)
-
-### 🔧 How You Can Help
-
-- **Hardware Testing**: If you have D1/D1-R devices, help validate phase mode and input configuration
-- **S1/S1-R/S2/S2-R Implementation**: Contribute switch platform support
-- **Test Suite**: Add unit and integration tests
-- **Documentation**: Translate to other languages, add testing guides
-- **Bug Reports**: File issues at https://github.com/jihlenburg/homeassistant-ubisys/issues
+- 🔍 **Auto-Discovery** — Detects Ubisys devices automatically when paired with ZHA
+- 🎯 **Smart Feature Filtering** — Show only controls that match your shade/device type
+- 🔧 **One-Click Calibration** — Automated J1 calibration via button or service
+- 🎛️ **Phase Control** — Configure D1 dimmers for LED compatibility (reverse/forward/auto)
+- 🏠 **Device Triggers** — Physical button presses trigger Home Assistant automations
+- 📊 **Diagnostics & Repairs** — Actionable issues when clusters/quirks are missing
+- 🔇 **Quiet by Default** — Optional verbose logging for troubleshooting
+- 📦 **HACS Compatible** — Easy installation and automatic updates
 
 ---
 
-## 📦 Installation
+## 🛠️ Supported Devices
 
-### Method 1: One-Line Installer (Recommended for Raspberry Pi / Home Assistant OS)
+| Device | Type | Status | Key Features |
+|--------|------|--------|--------------|
+| **J1 / J1-R** | Window Covering | ✅ Fully Supported | Position, Tilt, Auto-Calibration |
+| **D1 / D1-R** | Universal Dimmer | ✅ Fully Supported | Phase Control, Ballast Config |
+| **S1 / S1-R** | Power Switch | ✅ Supported | Input Config, Power Metering (via ZHA) |
+| **S2 / S2-R** | Dual Switch | 📋 Planned | Not yet implemented |
 
-**For Raspberry Pi / Home Assistant OS:**
+> [!NOTE]
+> **J1 Shade Types:** Roller, Cellular, Vertical Blind, Venetian, Exterior Venetian
+> **Full device support matrix:** [Device Support Matrix](docs/device_support_matrix.md)
 
-```bash
-# SSH into your Home Assistant instance
-ssh root@homeassistant.local
-# (or use your IP: ssh root@192.168.1.xxx)
-
-# Run the installer
-curl -sSL https://raw.githubusercontent.com/jihlenburg/homeassistant-ubisys/main/install.sh | bash
-```
-
-**For standard Linux/macOS installations:**
-
-```bash
-curl -sSL https://raw.githubusercontent.com/jihlenburg/homeassistant-ubisys/main/install.sh | bash
-```
-
-The installer will:
-- Create all required directories (`custom_components`, `custom_zha_quirks`)
-- Download all integration files from GitHub
-- Install ZHA quirk for manufacturer-specific attributes
-- Update your `configuration.yaml` with required settings
-- Create timestamped backups of existing files
-- Validate your Home Assistant configuration
-- Provide rollback capability on errors
-
-**Post-installation:**
-1. Restart Home Assistant: `ha core restart` (or via UI: Configuration → System → Restart)
-2. Verify installation in logs: `grep -i ubisys /config/home-assistant.log`
-3. Check integration appears: Configuration → Integrations → Add Integration → Search "Ubisys"
-
-### Method 2: HACS
-
-1. Open HACS in Home Assistant
-2. Go to **Integrations**
-3. Click the **⋮** menu → **Custom repositories**
-4. Add repository: `https://github.com/jihlenburg/homeassistant-ubisys`
-5. Category: **Integration**
-6. Click **Add**
-7. Search for "Ubisys Zigbee Devices"
-8. Click **Download**
-9. Restart Home Assistant
-
-### Method 3: Manual Installation
-
-1. Download the latest release
-2. Copy `custom_components/ubisys` to your `config/custom_components/` directory
-3. Copy `custom_zha_quirks/ubisys_j1.py` to your `config/custom_zha_quirks/` directory
-4. Add to `configuration.yaml`:
-
-```yaml
-zha:
-  custom_quirks_path: custom_zha_quirks
-```
-
-5. Restart Home Assistant
+---
 
 ## 🚀 Quick Start
 
-Prefer a concise, click‑by‑click guide? See docs/getting_started.md.
-Device trigger examples: docs/device_triggers_examples.md.
+### 1. Install via HACS
 
-For logging controls and best practices, see docs/logging.md.
+<details>
+<summary>Click to expand installation steps</summary>
 
-### 1. Pair Your Device with ZHA
+1. Open **HACS** in Home Assistant
+2. Go to **Integrations**
+3. Click **⋮** menu → **Custom repositories**
+4. Add: `https://github.com/jihlenburg/homeassistant-ubisys`
+5. Category: **Integration**
+6. Search "Ubisys Zigbee Devices"
+7. Click **Download**
+8. **Restart Home Assistant**
 
-Pair your Ubisys J1 with ZHA:
+**Other installation methods:** [Installation Guide](docs/installation.md)
+</details>
 
-1. Go to **Settings** → **Devices & Services** → **ZHA**
-2. Click **Add Device**
-3. Put your J1 into pairing mode (hold the pairing button)
-4. Wait for ZHA to discover the device
+### 2. Pair Your Device with ZHA
 
-### 2. Configure via Auto-Discovery (v1.1+)
+1. **Settings** → **Devices & Services** → **ZHA** → **Add Device**
+2. Put your Ubisys device in pairing mode
+3. Wait for ZHA to discover it
 
-**The integration will automatically detect your J1!**
+### 3. Configure the Integration
 
-After pairing with ZHA, a configuration notification will appear:
+The integration auto-discovers your device! Look for the notification:
 
-1. Click the notification or go to **Settings** → **Devices & Services**
-2. Look for "Ubisys J1" in discovered integrations
+1. Click notification or go to **Settings** → **Devices & Services**
+2. Find **"Ubisys [Device]"** in discovered integrations
 3. Click **Configure**
-4. Select your shade type:
-   - **Roller Shade** - Standard roller blinds (position only)
-   - **Cellular Shade** - Honeycomb/cellular blinds (position only)
-   - **Vertical Blind** - Vertical slat blinds (position only)
-   - **Venetian Blind** - Indoor horizontal slat blinds (position + tilt)
-   - **Exterior Venetian Blind** - Outdoor horizontal slat blinds (position + tilt)
-5. Click **Submit**
+4. Select shade type (J1) or configure options (D1/S1)
+5. **Submit**
 
-**Result:** You'll see one cover entity with the correct features. The original ZHA entity is automatically hidden to prevent duplicates.
+**Result:** One cover/light/switch entity with correct features. Original ZHA entity auto-hidden.
 
-### 3. Calibrate Your Device
+### 4. Calibrate (J1 only)
 
-Run the calibration service to set up accurate position tracking.
+**Via Button:**
+1. Go to device page: **Settings** → **Devices & Services** → **Ubisys** → Your Device
+2. Click **Calibrate** button
+3. Wait 60-120 seconds
 
-**Via Calibration Button (Easiest):**
-
-After adding the integration, you'll see a **Calibrate** button entity attached to your device:
-
-1. Go to the device page (Configuration → Devices → Your Ubisys J1)
-2. Click the **Calibrate** button
-3. The shade will automatically run through the calibration sequence
-
-**Or via Services:**
-
+**Or via Service:**
 ```yaml
 service: ubisys.calibrate_j1
-data:
+target:
   entity_id: cover.bedroom_shade
 ```
 
-**Via Automation:**
-```yaml
-automation:
-  - alias: "Calibrate Ubisys on Startup"
-    trigger:
-      - platform: homeassistant
-        event: start
-    action:
-      - service: ubisys.calibrate_j1
-        data:
-          entity_id: cover.bedroom_shade
-```
+**Learn more:** [J1 Calibration Guide](docs/j1_calibration.md)
 
-## 🔧 Calibration Process
+---
 
-The enhanced calibration service uses **motor stall detection** to automatically find the physical limits of your blind. No matter where the blind starts, calibration will work correctly.
+## 📖 Usage
 
-### Calibration Steps
-
-1. **Enter Calibration Mode** - Device enters special calibration mode
-2. **Find Top Limit** - Moves UP until motor stalls at fully open position
-3. **Find Bottom Limit** - Moves DOWN until motor stalls at fully closed position
-4. **Measure Total Steps** - Device auto-calculates travel distance
-5. **Verification** - Returns to top to confirm calibration
-6. **Configure Device** - Writes tilt settings based on shade type
-7. **Exit Calibration Mode** - Returns to normal operation
-
-### What You'll See
-
-During calibration (60-120 seconds):
-- The blind moves to fully open (motor stalls at top)
-- Brief pause
-- The blind moves to fully closed (motor stalls at bottom)
-- Brief pause
-- The blind returns to fully open (verification)
-- Calibration complete!
-
-**Important**: The blind will automatically find its limits regardless of starting position. Motor stall detection ensures precise calibration.
-
-### Expected Duration
-- **Roller/Cellular/Vertical**: 60-90 seconds
-- **Venetian Blinds**: 90-120 seconds
-
-Check logs for detailed calibration progress and results.
-
-## 💡 D1 Universal Dimmer Configuration
-
-The D1/D1-R universal dimmers require configuration to work optimally with different load types (incandescent, halogen, LED). This integration provides three configuration services:
-
-### Phase Control Mode Configuration
-
-Configure how the dimmer reduces voltage to the load (critical for LED compatibility):
-
-**Available Modes:**
-- `automatic` - Auto-detect load type (default, recommended starting point)
-- `forward` - Leading edge dimming (for incandescent, halogen)
-- `reverse` - Trailing edge dimming (for LED lamps)
-
-**Important:** The dimmer output MUST be OFF to change the phase mode.
-
-**Example:**
-```yaml
-# Turn off light first
-service: light.turn_off
-target:
-  entity_id: light.kitchen_dimmer
-
-# Configure phase mode
-service: ubisys.configure_d1_phase_mode
-data:
-  entity_id: light.kitchen_dimmer
-  phase_mode: reverse  # For LED lamps
-```
-
-### Ballast Configuration
-
-Fine-tune the minimum and maximum brightness levels to prevent LED flickering:
-
-**Example:**
-```yaml
-# Set minimum level to prevent flickering at low brightness
-service: ubisys.configure_d1_ballast
-data:
-  entity_id: light.kitchen_dimmer
-  min_level: 15      # Range: 1-254 (typical: 10-20 for LEDs)
-  max_level: 254     # Range: 1-254 (default: 254)
-```
-
-### When to Configure
-
-- **LEDs flickering at low brightness?** Try `phase_mode: reverse` and increase `min_level`
-- **Buzzing from dimmer/transformer?** Try switching between `forward` and `reverse` phase modes
-- **Limited dimming range?** Adjust `min_level` and try different phase modes
-- **New LED installation?** Start with `automatic` mode, adjust only if needed
-
-### Complete D1 Setup Example
+<details>
+<summary><strong>J1 Window Covering</strong></summary>
 
 ```yaml
-# 1. Turn off the light
-service: light.turn_off
-target:
-  entity_id: light.living_room_dimmer
-
-# 2. Configure phase mode for LED compatibility
-service: ubisys.configure_d1_phase_mode
-data:
-  entity_id: light.living_room_dimmer
-  phase_mode: reverse
-
-# 3. Set ballast levels to prevent flickering
-service: ubisys.configure_d1_ballast
-data:
-  entity_id: light.living_room_dimmer
-  min_level: 15
-  max_level: 254
-```
-
-For detailed configuration instructions, troubleshooting, and load type reference, see the [D1 Configuration Guide](docs/d1_configuration.md).
-
-## 📖 Usage Examples
-
-### Basic Control
-
-```yaml
-# Open the shade
+# Basic control
 service: cover.open_cover
 target:
   entity_id: cover.bedroom_shade
 
-# Set to 50% open
+# Set position (0=closed, 100=open)
 service: cover.set_cover_position
 target:
   entity_id: cover.bedroom_shade
 data:
   position: 50
 
-# Set tilt to 75% (venetian only)
+# Set tilt (venetian only)
 service: cover.set_cover_tilt_position
 target:
-  entity_id: cover.bedroom_shade
+  entity_id: cover.south_window
 data:
   tilt_position: 75
 ```
 
-### Automation Examples
+**More examples:** [Usage Examples](docs/examples.md)
+</details>
 
-**Morning Routine:**
+<details>
+<summary><strong>D1 Universal Dimmer</strong></summary>
+
+```yaml
+# Turn on at 50% brightness
+service: light.turn_on
+target:
+  entity_id: light.living_room_dimmer
+data:
+  brightness_pct: 50
+
+# Configure for LED compatibility
+service: ubisys.configure_d1_phase_mode
+target:
+  entity_id: light.living_room_dimmer
+data:
+  phase_mode: reverse  # Trailing edge for LEDs
+
+# Prevent flickering
+service: ubisys.configure_d1_ballast
+target:
+  entity_id: light.living_room_dimmer
+data:
+  min_level: 15  # Adjust until flickering stops
+  max_level: 254
+```
+
+**Full configuration guide:** [D1 Configuration](docs/d1_configuration.md)
+</details>
+
+<details>
+<summary><strong>Device Triggers (Button Press Automations)</strong></summary>
+
 ```yaml
 automation:
-  - alias: "Morning - Open Bedroom Shades"
+  - alias: "Button 1 Short Press - Open Shade 50%"
     trigger:
-      - platform: time
-        at: "07:00:00"
-    condition:
-      - condition: state
-        entity_id: binary_sensor.workday
-        state: "on"
+      - platform: device
+        domain: ubisys
+        device_id: abc123...
+        type: button_1_short_press
     action:
       - service: cover.set_cover_position
         target:
           entity_id: cover.bedroom_shade
         data:
-          position: 100  # Fully open
+          position: 50
 ```
 
-**Sun Protection:**
+**More trigger examples:** [Device Triggers Guide](docs/device_triggers_examples.md)
+</details>
+
+---
+
+## 🔧 Configuration
+
+### Change Shade Type (J1)
+
+1. **Settings** → **Integrations** → Find your Ubisys device
+2. Click **Configure**
+3. Select new shade type
+4. **Submit**
+5. Re-run calibration
+
+### Configure Logging
+
+**Enable verbose logging:**
+1. Device page → **Configure** → **Options**
+2. Enable "Verbose info logging" and/or "Verbose input event logging"
+
+Or via `configuration.yaml`:
 ```yaml
-automation:
-  - alias: "Close Shades When Hot"
-    trigger:
-      - platform: numeric_state
-        entity_id: sensor.outside_temperature
-        above: 30
-    condition:
-      - condition: sun
-        after: sunrise
-        before: sunset
-    action:
-      - service: cover.close_cover
-        target:
-          entity_id: cover.living_room_shade
+logger:
+  logs:
+    custom_components.ubisys: debug
 ```
 
-**Venetian Blind Tilt Based on Sun:**
-```yaml
-automation:
-  - alias: "Adjust Tilt for Sun Angle"
-    trigger:
-      - platform: numeric_state
-        entity_id: sun.sun
-        attribute: elevation
-        above: 45
-    action:
-      - service: cover.set_cover_tilt_position
-        target:
-          entity_id: cover.south_window_venetian
-        data:
-          tilt_position: 30  # Nearly closed
-```
+**Logging guide:** [Logging Policy](docs/logging.md)
 
-## 🎨 Lovelace Card Example
-
-```yaml
-type: entities
-title: Bedroom Shade
-entities:
-  - entity: cover.bedroom_shade
-    name: Position
-  - type: custom:slider-entity-row
-    entity: cover.bedroom_shade
-    name: Position
-    min: 0
-    max: 100
-  - type: custom:slider-entity-row
-    entity: cover.bedroom_shade
-    name: Tilt
-    attribute: current_tilt_position
-    min: 0
-    max: 100
-  - type: button
-    name: Calibrate
-    tap_action:
-      action: call-service
-      service: ubisys.calibrate_j1
-      service_data:
-        entity_id: cover.bedroom_shade
-```
-
-## 🔄 Viewing and Changing Shade Type
-
-### View Current Configuration
-
-The cover entity displays the configured shade type as an attribute:
-
-1. Go to **Developer Tools** → **States**
-2. Find your Ubisys cover entity (e.g., `cover.bedroom_shade`)
-3. Check the **Attributes** section for `shade_type`
-
-You can also see it in the device info or by clicking on the entity card.
-
-### Change Shade Type
-
-You can change the configured shade type at any time:
-
-1. Go to **Configuration** → **Integrations**
-2. Find your Ubisys device
-3. Click **Configure**
-4. Select the new shade type
-5. Click **Submit**
-
-The supported features will update immediately. Re-run calibration after changing shade type.
+---
 
 ## 🛠️ Troubleshooting
 
-### Shade doesn't respond to commands
+<details>
+<summary><strong>Device not discovered after pairing with ZHA</strong></summary>
 
-1. Check that the ZHA integration shows the device as available
-2. Try restarting the ZHA integration
-3. Check Zigbee signal strength - consider adding a router
-
-### Position is inaccurate
-
-1. Run the calibration service: `ubisys.calibrate_j1` or click the Calibrate button
-2. Make sure the shade can move freely (no obstructions)
-3. **No need to position the blind** - calibration automatically finds limits via motor stall detection
-
-### Tilt controls don't appear
-
-1. Check that you selected a venetian blind shade type
-2. Reconfigure the integration and select the correct type
+1. Verify device appears in ZHA: **Settings** → **Devices & Services** → **ZHA**
+2. Check device model matches exactly (e.g., "J1", not "J1 (5502)")
 3. Restart Home Assistant
+4. Manually add: **Settings** → **Integrations** → **Add Integration** → "Ubisys"
 
-### Calibration fails
+**Full troubleshooting:** [Troubleshooting Guide](docs/troubleshooting.md)
+</details>
 
-1. Ensure the shade has power and is responsive to basic commands
-2. Check Home Assistant logs for error details
-3. Manually test open/close commands through ZHA first
-4. Verify the device is properly paired and accessible
+<details>
+<summary><strong>Calibration fails or times out</strong></summary>
 
-### Integration not showing in UI
+1. Ensure shade has power and responds to basic commands
+2. Remove physical obstructions
+3. Check logs: `grep -i "calibration\|ubisys" /config/home-assistant.log`
+4. Try test mode first: `test_mode: true`
 
-1. Verify files are in `custom_components/ubisys/`
-2. Check `configuration.yaml` for the ZHA quirks path
-3. Restart Home Assistant
-4. Check logs: `grep -i ubisys home-assistant.log`
+**Detailed debugging:** [J1 Calibration Guide](docs/j1_calibration.md#troubleshooting)
+</details>
 
-## 📚 Advanced Configuration
+<details>
+<summary><strong>Tilt controls missing (Venetian blinds)</strong></summary>
 
-See docs/advanced_zha_access.md for direct ZHA cluster access examples and cautions.
+1. Verify shade type: **Developer Tools** → **States** → Find entity → Check `shade_type` attribute
+2. Reconfigure: Select "Venetian Blind" or "Exterior Venetian Blind"
+3. Re-run calibration
+4. Restart Home Assistant
 
-## 🏗️ Development
+</details>
 
-### Project Structure
+**More solutions:** [Troubleshooting Guide](docs/troubleshooting.md) • [FAQ](docs/faq.md)
 
-```
-homeassistant-ubisys/
-├── custom_components/ubisys/     # Main integration
-│   ├── __init__.py              # Setup, discovery, and service registration
-│   ├── button.py                # Calibration button platform
-│   ├── j1_calibration.py        # J1 calibration module
-│   ├── config_flow.py           # Configuration UI with auto-discovery
-│   ├── const.py                 # Constants and mappings
-│   ├── cover.py                 # Wrapper cover platform
-│   ├── manifest.json            # Integration metadata
-│   ├── services.yaml            # Service definitions
-│   ├── strings.json             # UI strings
-│   └── translations/
-│       └── en.json              # English translations
-├── custom_zha_quirks/
-│   └── ubisys_j1.py             # ZHA quirk for J1
-├── docs/                        # Documentation
-├── install.sh                   # Installation script
-└── README.md                    # This file
-```
+---
 
-### Testing & Local CI
+## 📚 Documentation
 
-Use our local CI runner (creates .venv, installs deps, runs lint/type/tests):
+### User Guides
+- 📖 [Getting Started](docs/getting_started.md)
+- 🪟 [J1 Calibration Guide](docs/j1_calibration.md)
+- 💡 [D1 Configuration Guide](docs/d1_configuration.md)
+- 🎯 [Device Triggers & Automations](docs/device_triggers_examples.md)
+- 📝 [Usage Examples & Lovelace Cards](docs/examples.md)
 
-```bash
-# Full local CI
-make ci
+### Reference
+- 🛠️ [Installation Guide](docs/installation.md)
+- 🐛 [Troubleshooting](docs/troubleshooting.md)
+- ❓ [FAQ](docs/faq.md)
+- ⚠️ [Known Issues & Roadmap](docs/known_issues.md)
+- 🗺️ [Roadmap](docs/roadmap.md)
 
-# Auto-fix formatting
-make fmt
+### Developer
+- 🏗️ [Architecture Overview](docs/architecture_overview.md)
+- 🤝 [Contributing Guide](CONTRIBUTING.md)
+- 🧪 [Testing Guide](docs/development.md)
 
-# After bootstrapping
-make lint
-make typecheck
-make test
-```
+---
 
-GitHub Actions runs hassfest/HACS + lint/type/tests (HA 2024.1.*).
+## 🤝 Contributing
 
-#### Targeted unit suites
+Contributions welcome! See [Contributing Guide](CONTRIBUTING.md) for:
 
-- `tests/test_integration_bootstrap.py` ensures `async_setup`, `async_setup_entry`, and `async_unload_entry` wire services, discovery, and cleanup correctly.
-- `tests/test_input_monitor.py` drives the `UbisysInputMonitor` lifecycle end-to-end (reading InputActions, handling `zha_event`s, setting up/unloading monitors).
-- `tests/test_platform_wrappers.py` spins up lightweight Home Assistant doubles to exercise the cover/light/switch wrappers and the “last input event” sensor without a running HA core.
-- `tests/test_zha_quirks.py` injects minimal `zigpy`/`zhaquirks` shims so the Ubisys DeviceSetup, Ballast, and DimmerSetup quirks can be imported and validated in isolation.
-- `tests/test_device_trigger.py` verifies that device automations map physical inputs and dispatcher signals to per-button trigger types.
-- `pytest --cov=custom_components.ubisys --cov=custom_zha_quirks --cov-report=term-missing` currently reports ~58 % coverage with the bootstrap, wrappers, monitors, and quirks now under direct unit test.
+- Development setup & local CI (`make ci`)
+- Code quality standards & testing
+- Pull request guidelines
+- How to add device support
 
-Device trigger examples: see docs/device_triggers_examples.md.
+**Ways to help:**
+- 🧪 Test with real hardware (D1 phase modes, J1 calibration)
+- 📝 Improve documentation
+- 🌐 Add translations
+- 🐛 Report bugs with detailed logs
 
-### Logging Controls
+---
 
-Options → Configure includes:
-- Verbose info logging (lifecycle/setup at INFO)
-- Verbose input event logging (each event at INFO)
+## ⚖️ Legal
 
-See docs/logging.md for patterns (kv/info_banner) and HA logger config.
+> [!IMPORTANT]
+> **This integration is not affiliated with, endorsed by, or sponsored by Ubisys Elektronik GmbH.**
+>
+> All Ubisys trademarks, logos, and brand assets are the intellectual property of Ubisys Elektronik GmbH. This is an independent, community-developed integration provided "as-is" without warranty.
 
-### Diagnostics & Logbook
-
-- Diagnostics: redacted config, device info, ZHA endpoints/clusters, last calibration results
-- Logbook: user-friendly entries for input events and calibration completion
-
-### Options “About” Page
-
-Options now starts with a menu: “About” (links to docs/issues) or “Configure”.
-
-### Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+---
 
 ## 📝 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) file for details.
 
-## ⚖️ Legal Disclaimer
-
-**This integration is not affiliated with, endorsed by, or sponsored by Ubisys Elektronik GmbH.**
-
-All Ubisys trademarks, logos, and brand assets are the intellectual property of Ubisys Elektronik GmbH. This is an independent, community-developed integration for Home Assistant and is provided "as-is" without warranty of any kind.
-
-The use of Ubisys trademarks and logos in this project is solely for the purpose of identifying compatibility with Ubisys devices and does not imply any official relationship or endorsement.
+---
 
 ## 🙏 Acknowledgments
 
 - Home Assistant community
 - ZHA integration maintainers
-- Ubisys Elektronik GmbH for their excellent Zigbee devices
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/jihlenburg/homeassistant-ubisys/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/jihlenburg/homeassistant-ubisys/discussions)
-- **Home Assistant Community**: [Community Forum](https://community.home-assistant.io/)
-
-## 🗺️ Roadmap
-
-See docs/roadmap.md
+- Ubisys Elektronik GmbH for excellent Zigbee devices
 
 ---
 
+## 📞 Support
+
+- 🐛 **Issues:** [GitHub Issues](https://github.com/jihlenburg/homeassistant-ubisys/issues)
+- 💬 **Discussions:** [GitHub Discussions](https://github.com/jihlenburg/homeassistant-ubisys/discussions)
+- 🏠 **Community:** [Home Assistant Forum](https://community.home-assistant.io/)
+
+---
+
+<div align="center">
+
 **Made with ❤️ for the Home Assistant community**
-## ℹ️ S1/S1‑R Support
 
-- The integration provides a wrapper switch entity for S1/S1‑R and exposes input presets via the Options Flow.
-- Metering is handled by ZHA (standard sensors). Advanced physical input behaviors are configured via presets.
+[⬆ Back to top](#ubisys-zigbee-devices-for-home-assistant)
 
-See Options → “Configure Physical Inputs”.
-## 🧪 Diagnostics & Tuning
-
-- Last Input Event Sensor: Each device now exposes a “Last Input Event” sensor that updates on every physical button press and keeps a small rolling history in attributes.
-- J1 Advanced Tuning: Configure guard time, inactive power threshold, startup steps, and additional steps via Options (Shade + Tuning) or the `ubisys.tune_j1_advanced` service. See docs/advanced_j1_tuning.md.
-- Test Mode: The calibration service `ubisys.calibrate_j1` accepts `test_mode: true` to perform a read‑only health check without entering calibration.
+</div>

@@ -168,3 +168,7 @@ test_output/
 *.bak
 *.backup
 tmp/
+
+# Local development notes (not for git)
+.dev-notes.md
+LOCAL_DEV.md
