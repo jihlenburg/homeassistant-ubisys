@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.7] - 2025-11-16
+
+### Fixed
+- Critical bug where entities would link to deleted devices when re-configuring the integration
+- Entities no longer appear orphaned with wrong device name after deleting and re-adding integration
+
+### Added
+- Explicit device entry creation during setup to prevent entity-device mismatches
+- Automated cleanup for orphaned entities (runs during setup and unload)
+- `_ensure_device_entry()` helper that creates/restores device entry before entities are created
+- `_cleanup_orphaned_entities()` helper that removes orphaned entities automatically
+
+### Reliability
+- Device registry entries now explicitly linked to config entries
+- Deleted devices automatically restored when re-adding integration
+- Clear logging when orphaned entities are cleaned up
+
 ## [1.2.6] - 2025-11-14
 
 ### Fixed
