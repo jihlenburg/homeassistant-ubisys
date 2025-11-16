@@ -410,6 +410,49 @@ async def _wait_for_stall(
     \"\"\"
 ```
 
+### API Verification (Lesson from v1.2.8)
+
+**ALWAYS verify parameter names against the actual Home Assistant API before releasing.**
+
+**The v1.2.8 Incident:**
+- Used `add_config_entry` instead of `add_config_entry_id` in `device_registry.async_update_device()`
+- Caused TypeError that broke integration setup for all users
+- Required emergency v1.2.9 hotfix release
+
+**Prevention Checklist:**
+
+1. **When using Home Assistant APIs:**
+   ```python
+   # DON'T assume parameter names
+   device_registry.async_update_device(
+       device_id,
+       add_config_entry=entry_id,  # ❌ WRONG - assumed name
+   )
+
+   # DO verify with help() or documentation
+   from homeassistant.helpers import device_registry
+   help(device_registry.DeviceRegistry.async_update_device)
+
+   device_registry.async_update_device(
+       device_id,
+       add_config_entry_id=entry_id,  # ✓ CORRECT - verified name
+   )
+   ```
+
+2. **Verification Methods:**
+   - Check Home Assistant source code on GitHub
+   - Use `help(module.Class.method)` in Python REPL
+   - Search existing integrations for usage examples
+   - Run integration in dev environment before release
+
+3. **Pre-Release Testing:**
+   - Unit tests pass (catches syntax errors) ✓
+   - **Integration loads in real HA instance** ← CRITICAL
+   - Check logs for TypeErrors or unexpected keyword arguments
+   - Test with actual hardware when possible
+
+**Remember**: Unit tests won't catch parameter name errors if the code doesn't execute during tests. Always do integration testing in a live Home Assistant instance.
+
 ### Security Patterns
 
 **Service Parameter Validation** (Added in v1.1.1):
