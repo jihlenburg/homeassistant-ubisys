@@ -529,7 +529,7 @@ async def _ensure_device_entry(
         # Update device to add our config entry and ubisys identifier
         device = device_registry.async_update_device(
             existing_device.id,
-            add_config_entry=entry.entry_id,
+            add_config_entry_id=entry.entry_id,
             merge_identifiers={(DOMAIN, device_ieee)},
         )
 
@@ -642,13 +642,15 @@ async def _cleanup_orphaned_ubisys_device(
 
         # Check if device has any remaining config entries
         updated_device = device_registry.async_get(orphaned_device.id)
-        if updated_device and not updated_device.config_entries:
-            # Device has no config entries - Home Assistant should garbage-collect it
-            # We don't need to explicitly delete it
-            _LOGGER.debug(
-                "Orphaned device id=%s has no config entries, will be garbage-collected",
-                orphaned_device.id,
-            )
+        if updated_device:
+            remaining_entries = getattr(updated_device, 'config_entries', set())
+            if not remaining_entries:
+                # Device has no config entries - Home Assistant should garbage-collect it
+                # We don't need to explicitly delete it
+                _LOGGER.debug(
+                    "Orphaned device id=%s has no config entries, will be garbage-collected",
+                    orphaned_device.id,
+                )
 
     except Exception as err:
         # Log but don't fail - this is cleanup, not critical

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.9] - 2025-11-16
+
+### Fixed
+- Hotfix: Corrected parameter names in device registry API calls
+- `add_config_entry` → `add_config_entry_id`
+- `remove_config_entry_id` (correct)
+- Made config_entries access more defensive using getattr()
+
+### Technical Details
+- v1.2.8 used incorrect parameter name `add_config_entry` instead of `add_config_entry_id`
+- This caused `TypeError: DeviceRegistry.async_update_device() got an unexpected keyword argument`
+- Integration failed to set up completely
+- v1.2.9 fixes parameter names and adds defensive attribute access
+
 ## [1.2.8] - 2025-11-16
 
 ### Fixed
