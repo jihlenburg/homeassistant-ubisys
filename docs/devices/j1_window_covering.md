@@ -1,10 +1,10 @@
-# Ubisys J1 Calibration Guide
+# Ubisys J1 Window Covering Guide
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
-Docs: [index](index.md) · [common tasks](common_tasks.md) · [troubleshooting](troubleshooting.md) · [FAQ](faq.md)
+Docs: [index](../index.md) · [common tasks](../common_tasks.md) · [troubleshooting](../troubleshooting.md) · [FAQ](../faq.md)
 
-This guide explains the calibration process for Ubisys J1 window covering controllers in detail.
+This guide explains calibration and advanced tuning for Ubisys J1/J1-R window covering controllers.
 
 ## Why Calibration is Needed
 
@@ -46,7 +46,7 @@ You should run calibration:
 
 ## Calibration Methods
 
-Note on terminology: User-facing docs describe calibration as “Steps”. Developer logs and code reference internal “Phases” for clarity.
+Note on terminology: User-facing docs describe calibration as "Steps". Developer logs and code reference internal "Phases" for clarity.
 
 Shade type naming (Z2M parity):
 - Roller Shade (aka roller_shade)
@@ -327,7 +327,49 @@ For venetian blinds, this value indicates how many steps are needed to fully rot
 2. Check mechanical tilt connection
 3. Rerun calibration
 
-## Advanced Topics
+## Advanced Tuning
+
+This section explains how to tune advanced manufacturer-specific attributes on Ubisys J1/J1-R using the integration's service and options flow.
+
+### What You Can Set
+
+- **Turnaround Guard Time (0x1000)**: Delay between reversing direction, in 50ms units (e.g., 10 = 500ms)
+- **Inactive Power Threshold (0x1006)**: Motor inactive threshold in milliwatts (e.g., 4096 ≈ 4.1W)
+- **Startup Steps (0x1007)**: Number of AC waves to run on startup
+- **Additional Steps (0x1005)**: Overtravel percentage (0–100) to improve limit contact
+
+### How to Apply
+
+**Via Options Flow:**
+1. Navigate to **Settings** → **Devices & Services** → **Ubisys**
+2. Select your J1 device
+3. Click **Configure**
+4. Select **"J1 Advanced"**
+5. Adjust settings as needed
+
+**Via Service:**
+```yaml
+service: ubisys.tune_j1_advanced
+data:
+  entity_id: cover.bedroom_shade
+  turnaround_guard_time: 10  # 500ms delay
+  inactive_power_threshold: 4096  # 4.1W
+  startup_steps: 5
+  additional_steps: 10  # 10% overtravel
+```
+
+### Verification
+
+- Writes are verified by reading back the attributes; a mismatch raises an error
+- Values persist across reboots
+
+### Tips
+
+- Make small, incremental changes and test in between
+- Avoid setting guard time too low for safety and mechanical longevity
+- If unsure about a value, use the options flow which provides helpful defaults
+
+## Manual Zigbee Commands
 
 ### Manual Step Counter Reset
 
@@ -516,4 +558,4 @@ A: Yes, always recalibrate after changing shade type in the configuration.
 
 ---
 
-For additional help, see [Troubleshooting](../README.md#troubleshooting) or open an [issue](https://github.com/jihlenburg/homeassistant-ubisys/issues).
+For additional help, see [Troubleshooting](../troubleshooting.md) or open an [issue](https://github.com/jihlenburg/homeassistant-ubisys/issues).

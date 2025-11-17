@@ -11,9 +11,9 @@ This documentation is organized to help both users and developers be successful 
   - Logging Controls & Policy: docs/logging.md
   - FAQ: docs/faq.md
 - Device Guides
-  - J1 Window Covering (Calibration & Tuning): docs/j1_calibration.md
-  - D1 Universal Dimmer (Phase/Ballast): docs/d1_configuration.md
-  - S1/S1-R Switch (Presets, status): docs/s1_configuration.md
+  - J1 Window Covering: docs/devices/j1_window_covering.md
+  - D1 Universal Dimmer: docs/devices/d1_universal_dimmer.md
+  - S1/S1-R Power Switch: docs/devices/s1_power_switch.md
 - Reference
   - Device Support Matrix: docs/device_support_matrix.md
   - Services Reference: docs/services_reference.md
