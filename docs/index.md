@@ -14,7 +14,5 @@ This documentation is organized to help both users and developers be successful 
 - Reference
   - Advanced ZHA Cluster Access: docs/advanced_zha_access.md
 - Developers
-  - Architecture Overview: docs/architecture_overview.md
-  - Development Guide: docs/development.md
-  - Work Log: docs/work_log.md
+  - Contributing Guide: ../CONTRIBUTING.md
   - Security & Privacy: docs/security_privacy.md
