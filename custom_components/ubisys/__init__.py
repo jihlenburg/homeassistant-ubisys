@@ -51,7 +51,7 @@ from typing import TYPE_CHECKING, Any
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -148,7 +148,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Register J1 calibration service
     _LOGGER.debug("Registering J1 calibration service: %s", SERVICE_CALIBRATE)
 
-    async def _calibrate_j1_handler(call):
+    async def _calibrate_j1_handler(call: ServiceCall) -> None:
         """Wrapper to inject hass into calibration handler."""
         await async_calibrate_j1(hass, call)
 
@@ -171,7 +171,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             "Registering J1 advanced tuning service: %s", SERVICE_TUNE_J1_ADVANCED
         )
 
-        async def _tune_j1_handler(call):
+        async def _tune_j1_handler(call: ServiceCall) -> None:
             """Wrapper to inject hass into tuning handler."""
             await async_tune_j1(hass, call)
 
@@ -200,7 +200,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         "Registering D1 phase mode service: %s", SERVICE_CONFIGURE_D1_PHASE_MODE
     )
 
-    async def _configure_phase_mode_handler(call):
+    async def _configure_phase_mode_handler(call: ServiceCall) -> None:
         """Wrapper to inject hass and extract parameters from call."""
         entity_id = call.data.get("entity_id")
         phase_mode = call.data.get("phase_mode")
@@ -220,7 +220,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     _LOGGER.debug("Registering D1 ballast service: %s", SERVICE_CONFIGURE_D1_BALLAST)
 
-    async def _configure_ballast_handler(call):
+    async def _configure_ballast_handler(call: ServiceCall) -> None:
         """Wrapper to inject hass and extract parameters from call."""
         entity_id = call.data.get("entity_id")
         min_level = call.data.get("min_level")
