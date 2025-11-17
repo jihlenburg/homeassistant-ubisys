@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2025-11-17
+
 ### Documentation
 - **Clarity improvement**: Renamed `docs/README.md` → `docs/user_guide.md`
   - Eliminates confusion between top-level README.md (GitHub intro) and comprehensive user guide
