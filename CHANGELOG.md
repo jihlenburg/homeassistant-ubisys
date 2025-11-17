@@ -7,12 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] - 2025-11-17
+
 ### Fixed
 - **Critical**: Fixed ZHA entity auto-enable race condition
   - Added entity registry update listener to continuously monitor ZHA entity
   - Automatically re-enables ZHA entity if disabled by ZHA integration
   - Previous fix only ran during setup, missing entities that loaded after ubisys
   - Now responds immediately when ZHA disables its entity after detecting wrapper
+  - Pattern validated against Home Assistant core (device_tracker integration uses identical logic)
 
 ## [1.3.2] - 2025-11-17
 
