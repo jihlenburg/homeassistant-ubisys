@@ -60,59 +60,10 @@ async def async_setup_entry(
     # Find the ZHA cover entity (or predict entity ID if not found yet)
     zha_entity_id = await _find_zha_cover_entity(hass, device_id, device_ieee)
 
-    # Auto-enable ZHA entity if disabled by integration
-    #
-    # PROBLEM: ZHA auto-disables its entity when it detects our wrapper exists
-    # (to prevent duplicate UI elements). However, our wrapper architecture
-    # DEPENDS on the ZHA entity having a state to delegate to.
-    #
-    # SOLUTION: Re-enable the ZHA entity, but keep it hidden. This creates:
-    # - ZHA entity: hidden + enabled = "internal state source"
-    # - Wrapper entity: visible + enabled = "user-facing entity"
-    #
-    # This pattern prevents deadlock while respecting both integrations' roles.
-    # See: https://github.com/jihlenburg/homeassistant-ubisys/issues/XXX
-    entity_registry = er.async_get(hass)
-    zha_entity = entity_registry.async_get(zha_entity_id)
-
-    if zha_entity:
-        # Only enable if disabled by integration, NEVER override user's choice!
-        if zha_entity.disabled_by == er.RegistryEntryDisabler.INTEGRATION:
-            _LOGGER.info(
-                "Enabling ZHA entity %s (disabled by integration). "
-                "Entity remains hidden; wrapper provides user interface.",
-                zha_entity_id,
-            )
-            try:
-                entity_registry.async_update_entity(
-                    zha_entity_id,
-                    disabled_by=None,  # Enable the entity
-                    # Note: hidden_by remains unchanged - entity stays hidden
-                )
-            except Exception as err:
-                _LOGGER.warning(
-                    "Failed to enable ZHA entity %s: %s. "
-                    "Wrapper will show as unavailable until manually enabled.",
-                    zha_entity_id,
-                    err,
-                )
-        elif zha_entity.disabled_by is not None:
-            # Disabled by user or other reason - respect that
-            _LOGGER.info(
-                "ZHA entity %s is disabled by %s (not enabling). "
-                "Wrapper will be unavailable until ZHA entity is manually enabled.",
-                zha_entity_id,
-                zha_entity.disabled_by,
-            )
-    else:
-        # Entity doesn't exist yet in registry (using predicted ID)
-        # Graceful degradation will handle this - wrapper shows as unavailable
-        # until ZHA creates the entity
-        _LOGGER.debug(
-            "ZHA entity %s not found in registry yet. "
-            "Wrapper will use graceful degradation until entity appears.",
-            zha_entity_id,
-        )
+    # Note: ZHA entity auto-enable is now handled centrally in __init__.py
+    # via _ensure_zha_entity_enabled() after _hide_zha_entity()
+    # This architectural change (v1.3.5) centralizes the logic instead of
+    # duplicating it across cover/light/switch platforms
 
     _LOGGER.log(
         logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
@@ -262,60 +213,13 @@ class UbisysCover(CoverEntity):
             )
         )
 
-        # Track entity registry updates to auto-enable ZHA entity if it gets disabled
-        # This prevents ZHA from disabling its entity when it detects our wrapper
-        self.async_on_remove(
-            self.hass.bus.async_listen(
-                er.EVENT_ENTITY_REGISTRY_UPDATED, self._handle_registry_update
-            )
-        )
+        # Note: Entity registry listener removed in v1.3.5
+        # Auto-enable logic now centralized in __init__.py
 
     @_typed_callback
     def _handle_zha_state_change(self, event: object) -> None:
         """Handle ZHA entity state change."""
         self.hass.async_create_task(self._sync_state_from_zha())
-
-    @_typed_callback
-    def _handle_registry_update(  # type: ignore[misc]
-        self, event: Event[er.EventEntityRegistryUpdatedData]
-    ) -> None:
-        """Handle entity registry update events.
-
-        Auto-enables ZHA entity if disabled by integration to maintain wrapper functionality.
-        This runs in the event loop thread (callback decorator) so it's safe to call
-        async_update_entity().
-        """
-        # Only process entity updates (not create/remove)
-        if event.data.get("action") != "update":
-            return
-
-        # Only process updates to our ZHA entity
-        if event.data.get("entity_id") != self._zha_entity_id:
-            return
-
-        # Check if ZHA entity was disabled by integration
-        entity_reg = er.async_get(self.hass)
-        zha_entity = entity_reg.async_get(self._zha_entity_id)
-
-        if (
-            zha_entity
-            and zha_entity.disabled_by == er.RegistryEntryDisabler.INTEGRATION
-        ):
-            _LOGGER.info(
-                "ZHA entity %s was disabled by integration. Re-enabling to maintain wrapper functionality.",
-                self._zha_entity_id,
-            )
-            try:
-                entity_reg.async_update_entity(
-                    self._zha_entity_id,
-                    disabled_by=None,
-                )
-            except Exception as err:
-                _LOGGER.error(
-                    "Failed to re-enable ZHA entity %s: %s",
-                    self._zha_entity_id,
-                    err,
-                )
 
     async def _sync_state_from_zha(self) -> None:
         """Sync state from ZHA entity.

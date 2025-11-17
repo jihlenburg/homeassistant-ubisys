@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.5] - 2025-11-17
+
+### Fixed
+- **Critical**: Centralized ZHA entity auto-enable logic to fix all wrapper platforms
+  - v1.3.3/v1.3.4 only protected cover platform (J1), leaving light platform (D1) broken
+  - Unified architecture: single integration-level listener in `__init__.py`
+  - All wrapper platforms (cover, light, future platforms) now protected automatically
+  - Removed duplicate per-platform logic (~100 lines of boilerplate eliminated)
+
+### Architecture
+- **Major refactoring**: Moved auto-enable logic from platform files to integration core
+  - New `_ensure_zha_entity_enabled()` helper in `__init__.py`
+  - Single integration-level entity registry listener (replaces per-platform listeners)
+  - Platforms no longer need setup-time enable or registry monitoring code
+  - Future wrapper platforms get protection "for free"
+
+### Technical Details
+- Integration-level listener monitors all tracked ZHA entities via shared set
+- `tracked_zha_entities` set maintained in `hass.data[DOMAIN]`
+- Thread-safe via `@_typed_callback` decorator on listener
+- DRY principle: one source of truth for ZHA entity lifecycle management
+- Pattern scales: adding new wrapper platforms requires zero enable/disable logic
+
 ## [1.3.4] - 2025-11-17
 
 ### Fixed

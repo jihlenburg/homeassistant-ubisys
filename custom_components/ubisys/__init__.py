@@ -318,6 +318,71 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 "Device registry update listener helper not available; skipping"
             )
 
+        # Register integration-level entity registry listener
+        # This monitors all tracked ZHA entities and re-enables them if ZHA disables them
+        @_typed_callback
+        def _entity_registry_listener(event: HAEvent) -> None:
+            """Monitor entity registry updates and re-enable tracked ZHA entities.
+
+            This is the centralized listener that replaces per-platform listeners.
+            It monitors all ZHA entities tracked by _ensure_zha_entity_enabled()
+            and immediately re-enables them if ZHA disables them.
+
+            Thread Safety:
+                The @_typed_callback decorator ensures this runs in the event loop
+                thread, making it safe to call async_update_entity().
+
+            Why Centralized:
+                v1.3.5 architectural improvement - instead of each platform (cover,
+                light) implementing its own listener, we have one integration-level
+                listener that protects all wrapper platforms automatically.
+            """
+            try:
+                # Only process entity updates (not create/remove)
+                if event.data.get("action") != "update":
+                    return
+
+                entity_id = event.data.get("entity_id")
+                if not entity_id:
+                    return
+
+                # Check if this is a tracked ZHA entity
+                tracked = hass.data.get(DOMAIN, {}).get("tracked_zha_entities", set())
+                if entity_id not in tracked:
+                    return
+
+                # Check if entity was disabled by integration
+                entity_reg = er.async_get(hass)
+                entity_entry = entity_reg.async_get(entity_id)
+
+                if (
+                    entity_entry
+                    and entity_entry.disabled_by == er.RegistryEntryDisabler.INTEGRATION
+                ):
+                    _LOGGER.debug(
+                        "Tracked ZHA entity %s was disabled by integration. "
+                        "Re-enabling to maintain wrapper functionality.",
+                        entity_id,
+                    )
+                    try:
+                        entity_reg.async_update_entity(
+                            entity_id,
+                            disabled_by=None,
+                        )
+                    except Exception as err:
+                        _LOGGER.error(
+                            "Failed to re-enable tracked ZHA entity %s: %s",
+                            entity_id,
+                            err,
+                        )
+            except Exception:  # best-effort listener
+                _LOGGER.debug(
+                    "Entity registry listener encountered an error", exc_info=True
+                )
+
+        # Subscribe to entity registry updates
+        hass.bus.async_listen(er.EVENT_ENTITY_REGISTRY_UPDATED, _entity_registry_listener)
+
         # Set up input monitoring for all already-configured devices
         # This handles devices that were configured before this startup
         # (e.g., after a Home Assistant restart)
@@ -375,6 +440,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # entities to avoid confusion (e.g., two "Bedroom Blind" entities)
     await _hide_zha_entity(hass, entry)
 
+    # Ensure ZHA entity stays enabled (but hidden) for wrapper delegation
+    # This is the centralized solution that replaces per-platform logic
+    await _ensure_zha_entity_enabled(hass, entry)
+
     # Track options updates to refresh verbose flags
     entry.async_on_unload(entry.add_update_listener(_options_update_listener))
 
@@ -394,6 +463,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Unhide the original ZHA entity
     await _unhide_zha_entity(hass, entry)
+
+    # Remove tracked ZHA entities for this config entry
+    # This stops the integration-level listener from monitoring this device's ZHA entities
+    _untrack_zha_entities(hass, entry)
 
     # Unload input monitoring
     await async_unload_input_monitoring(hass)
@@ -759,6 +832,162 @@ async def _hide_zha_entity(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 entity_entry.entity_id,
                 disabled_by=er.RegistryEntryDisabler.INTEGRATION,
                 hidden_by=er.RegistryEntryHider.INTEGRATION,
+            )
+
+
+async def _ensure_zha_entity_enabled(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Ensure ZHA entity stays enabled (but hidden) for wrapper delegation.
+
+    This is the centralized solution to the ZHA auto-disable problem:
+    - _hide_zha_entity() hides and disables the ZHA entity
+    - ZHA may also auto-disable it when detecting our wrapper (duplicate prevention)
+    - Our wrapper needs the ZHA entity enabled to delegate operations
+    - This function re-enables the entity and tracks it for ongoing monitoring
+
+    Architecture (v1.3.5 Unified Approach):
+        Instead of each platform (cover, light) independently implementing
+        auto-enable logic, we centralize it here in __init__.py:
+        1. This function re-enables ZHA entities after hiding them
+        2. Stores entity_ids in tracked_zha_entities set
+        3. Integration-level listener (registered in async_setup) monitors for changes
+        4. All platforms benefit automatically, no per-platform code needed
+
+    Why This Matters:
+        - ZHA entity must be enabled (but hidden) for wrapper to work
+        - disabled_by=INTEGRATION means auto-disabled by integration (safe to override)
+        - disabled_by=USER means user intentionally disabled it (respect user choice)
+        - Wrapper delegation fails if ZHA entity is disabled
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry for this device
+
+    Example:
+        >>> await _ensure_zha_entity_enabled(hass, entry)
+        # ZHA entity re-enabled and tracked for monitoring
+    """
+    entity_registry = er.async_get(hass)
+    device_ieee = entry.data.get("device_ieee")
+    model = entry.data.get("model", "")
+
+    if not device_ieee:
+        _LOGGER.warning(
+            "No device IEEE in config entry, cannot ensure ZHA entity enabled"
+        )
+        return
+
+    # Determine which domain based on device type (same logic as _hide_zha_entity)
+    device_type = get_device_type(model)
+
+    if device_type == "window_covering":
+        domain = "cover"
+    elif device_type == "dimmer":
+        domain = "light"
+    else:
+        _LOGGER.warning(
+            "Unknown device type '%s' for model '%s', cannot determine domain to enable",
+            device_type,
+            model,
+        )
+        return
+
+    # Find the ZHA entity for this device
+    zha_entities = er.async_entries_for_config_entry(
+        entity_registry, entry.data.get("zha_config_entry_id", "")
+    )
+
+    # Initialize tracked entities set if it doesn't exist
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN].setdefault("tracked_zha_entities", set())
+
+    for entity_entry in zha_entities:
+        # Look for matching platform and domain
+        if (
+            entity_entry.platform == "zha"
+            and entity_entry.domain == domain
+            and entity_entry.device_id == entry.data.get("device_id")
+        ):
+            # Track this entity for ongoing monitoring
+            hass.data[DOMAIN]["tracked_zha_entities"].add(entity_entry.entity_id)
+
+            # Re-enable if disabled by integration (but respect user's manual disable)
+            if entity_entry.disabled_by == er.RegistryEntryDisabler.INTEGRATION:
+                _LOGGER.debug(
+                    "ZHA %s entity %s is disabled by integration. "
+                    "Re-enabling for wrapper delegation (entity remains hidden).",
+                    domain,
+                    entity_entry.entity_id,
+                )
+                try:
+                    entity_registry.async_update_entity(
+                        entity_entry.entity_id,
+                        disabled_by=None,
+                    )
+                except Exception as err:
+                    _LOGGER.error(
+                        "Failed to re-enable ZHA %s entity %s: %s",
+                        domain,
+                        entity_entry.entity_id,
+                        err,
+                    )
+            else:
+                _LOGGER.debug(
+                    "ZHA %s entity %s is already enabled, tracking for monitoring.",
+                    domain,
+                    entity_entry.entity_id,
+                )
+
+
+def _untrack_zha_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove ZHA entities for this config entry from tracking.
+
+    This is called during unload to stop monitoring ZHA entities that
+    are no longer needed (because wrapper entities are being removed).
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry being unloaded
+
+    Example:
+        >>> _untrack_zha_entities(hass, entry)
+        # ZHA entities no longer monitored
+    """
+    entity_registry = er.async_get(hass)
+    device_ieee = entry.data.get("device_ieee")
+    model = entry.data.get("model", "")
+
+    if not device_ieee:
+        return
+
+    # Determine which domain based on device type
+    device_type = get_device_type(model)
+
+    if device_type == "window_covering":
+        domain = "cover"
+    elif device_type == "dimmer":
+        domain = "light"
+    else:
+        return
+
+    # Find the ZHA entity for this device
+    zha_entities = er.async_entries_for_config_entry(
+        entity_registry, entry.data.get("zha_config_entry_id", "")
+    )
+
+    tracked = hass.data.get(DOMAIN, {}).get("tracked_zha_entities", set())
+
+    for entity_entry in zha_entities:
+        if (
+            entity_entry.platform == "zha"
+            and entity_entry.domain == domain
+            and entity_entry.device_id == entry.data.get("device_id")
+        ):
+            # Remove from tracking set
+            tracked.discard(entity_entry.entity_id)
+            _LOGGER.debug(
+                "Untracked ZHA %s entity: %s",
+                domain,
+                entity_entry.entity_id,
             )
 
 
