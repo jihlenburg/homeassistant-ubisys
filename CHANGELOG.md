@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6] - 2025-11-17
+
+### Fixed
+- **Critical**: Fixed uninstall regression introduced in v1.3.5
+  - `_unhide_zha_entity()` now checks `hidden_by` instead of `disabled_by`
+  - ZHA entities are properly restored when integration is removed
+  - Respects "easy to revert to ZHA" architectural constraint
+- Removed unused `Event` import from cover.py (lint compliance)
+
+### Technical Details
+- v1.3.5 changed ZHA entity state from `disabled_by=INTEGRATION` to `disabled_by=None`
+- Original unhide logic checked for `disabled_by=INTEGRATION`, always failing
+- New logic checks `hidden_by=INTEGRATION` (what we actually care about)
+- Conditionally clears `disabled_by` only if set by integration (respects user choice)
+
 ## [1.3.5] - 2025-11-17
 
 ### Fixed

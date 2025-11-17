@@ -1041,7 +1041,7 @@ async def _unhide_zha_entity(hass: HomeAssistant, entry: ConfigEntry) -> None:
             entity_entry.platform == "zha"
             and entity_entry.domain == domain_to_unhide
             and entity_entry.device_id == entry.data.get("device_id")
-            and entity_entry.disabled_by == er.RegistryEntryDisabler.INTEGRATION
+            and entity_entry.hidden_by == er.RegistryEntryHider.INTEGRATION
         ):
             _LOGGER.debug(
                 "Unhiding ZHA %s entity: %s (%s)",
@@ -1050,10 +1050,16 @@ async def _unhide_zha_entity(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 entity_entry.unique_id,
             )
 
+            # Unhide and clear any integration-level disable
+            # Note: We clear disabled_by to restore full ZHA functionality,
+            # but only if it was disabled by integration (not by user)
+            updates = {"hidden_by": None}
+            if entity_entry.disabled_by == er.RegistryEntryDisabler.INTEGRATION:
+                updates["disabled_by"] = None
+
             entity_registry.async_update_entity(
                 entity_entry.entity_id,
-                disabled_by=None,
-                hidden_by=None,
+                **updates,
             )
 
 
