@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6.2] - 2025-11-17
+
+### Changed
+- Completed DRY refactoring for ZHA gateway resolution
+  - Applied `resolve_zha_gateway()` helper to diagnostics.py
+  - Eliminated final instance of duplicated gateway resolution code
+  - Diagnostics now benefit from robust multi-pattern gateway discovery
+  - Improved code coverage: diagnostics.py 87% → 90%
+  - All modules now use centralized helper from helpers.py
+
+### Fixed
+- Fixed documentation formatting in `resolve_zha_gateway()` docstring
+  - Consistent indentation for all bullet points
+
 ## [1.3.6.1] - 2025-11-17
 
 ### Fixed

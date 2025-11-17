@@ -54,7 +54,7 @@ def resolve_zha_gateway(zha_data: Any) -> Any | None:
     """Extract ZHA gateway object from Home Assistant's zha data container.
 
     Home Assistant has changed how it stores ZHA runtime data over time:
-    - Older versions exposed a HAZHAData object directly at hass.data["zha"]
+        - Older versions exposed a HAZHAData object directly at hass.data["zha"]
     - Transitional versions stored {"gateway": gateway}
     - Current versions store {entry_id: HAZHAData} (dict of entry-specific data)
 
