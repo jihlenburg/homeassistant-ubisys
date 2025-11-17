@@ -8,12 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Documentation
-- Restructured cover entity documentation for better organization
-  - Created `troubleshooting_j1_unavailable.md` - user-facing troubleshooting guide
-  - Enhanced `window_covering_architecture.md` - comprehensive developer reference
-  - Added sections: Wrapper Entity Pattern, Auto-Enable Logic, Graceful Degradation, Architecture Evolution
-  - Eliminated duplication between user and developer docs
-  - Integrated new troubleshooting guide into `index.md`
+- **Major restructuring**: Consolidated documentation from 31 files to 12 files (61% reduction)
+  - **Phase 1**: Consolidated 5 troubleshooting files into comprehensive `troubleshooting.md`
+  - **Phase 2**: Organized device guides into `docs/devices/` subdirectory
+    - Merged J1 calibration and advanced tuning into `devices/j1_window_covering.md`
+    - Moved D1 and S1 configuration guides to devices subdirectory
+  - **Phase 3**: Created comprehensive user guide `docs/README.md` following HA integration template
+    - Merged 8 user-facing files: getting_started, installation, common_tasks, examples, services_reference, events_reference, device_support_matrix, device_triggers_examples
+  - **Phase 4**: Consolidated developer documentation
+    - All developer content now in root-level `CONTRIBUTING.md`
+    - Deleted 7 architecture/development files: development, architecture_overview, shared_architecture, window_covering_architecture, device_trigger_testing, input_monitoring_testing, work_log
+  - **Phase 5**: Cleanup and validation
+    - Fixed all internal documentation links
+    - Removed orphaned file references
+    - Validated markdown formatting
+- Documentation structure now follows best practices with clear separation of concerns:
+  - User documentation: `docs/README.md` (comprehensive integration guide)
+  - Device guides: `docs/devices/` (J1, D1, S1 specific documentation)
+  - Troubleshooting: `docs/troubleshooting.md` (consolidated problem-solving)
+  - Developer documentation: `CONTRIBUTING.md` (architecture, testing, contributing)
 
 ## [1.3.1] - 2025-11-16
 

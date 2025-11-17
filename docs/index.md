@@ -6,7 +6,6 @@ This documentation is organized to help both users and developers be successful 
   - User Guide: docs/README.md
   - Troubleshooting: docs/troubleshooting.md
   - Logging Controls & Policy: docs/logging.md
-  - FAQ: docs/faq.md
 - Device Guides
   - J1 Window Covering: docs/devices/j1_window_covering.md
   - D1 Universal Dimmer: docs/devices/d1_universal_dimmer.md

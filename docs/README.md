@@ -2,7 +2,7 @@
 
 **Compatibility:** Home Assistant 2024.1+ (Python 3.11+)
 
-**Documentation:** [Index](index.md) · [Troubleshooting](troubleshooting.md) · [FAQ](faq.md)
+**Documentation:** [Index](index.md) · [Troubleshooting](troubleshooting.md)
 
 This integration brings advanced control and configuration capabilities to Ubisys Zigbee devices in Home Assistant through the ZHA integration.
 
@@ -740,7 +740,6 @@ ha core restart
 
 - **Reference**:
   - [Troubleshooting](troubleshooting.md)
-  - [FAQ](faq.md)
   - [Logging Controls](logging.md)
 
 - **External Resources**:
@@ -755,7 +754,6 @@ If you need help:
 
 1. **Check Documentation**:
    - [Troubleshooting Guide](troubleshooting.md)
-   - [FAQ](faq.md)
    - Device-specific guides (above)
 
 2. **Review Logs**:

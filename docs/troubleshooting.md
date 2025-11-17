@@ -2,7 +2,7 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
-Docs: [index](index.md) · [user guide](README.md) · [logging policy](logging.md) · [FAQ](faq.md)
+Docs: [index](index.md) · [user guide](README.md) · [logging policy](logging.md)
 
 This guide helps you diagnose and fix common issues with the Ubisys Home Assistant integration.
 
@@ -833,7 +833,7 @@ When wrapper shows as unavailable, try these steps in order:
 
 ## See Also
 
-- [J1 Calibration Guide](j1_calibration.md)
+- [J1 Calibration Guide](devices/j1_window_covering.md)
 - [Migration Guide](migration_v2.0.md)
 - [Main Troubleshooting Guide](troubleshooting.md)
 - [Window Covering Architecture](window_covering_architecture.md) (Developer reference)
@@ -1234,9 +1234,8 @@ Entities delegate to ZHA rather than talking directly to Zigbee:
 ---
 ##  🔗 Related Documentation
 - [Roadmap](roadmap.md) - Detailed future plans
-- [Troubleshooting](troubleshooting.md) - Common problems and solutions
-- [Contributing](../CONTRIBUTING.md) - Development guide
-- [Architecture](architecture_overview.md) - Technical deep-dive
+- [User Guide](README.md) - Complete integration documentation
+- [Contributing Guide](../CONTRIBUTING.md) - Developer documentation
 
 ## Repairs
 
