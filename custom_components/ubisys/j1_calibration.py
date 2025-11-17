@@ -51,6 +51,7 @@ from .helpers import (
     async_write_and_verify_attrs,
     async_zcl_command,
     is_verbose_info_logging,
+    resolve_zha_gateway,
 )
 from .logtools import Stopwatch, info_banner, kv
 
@@ -1570,14 +1571,7 @@ async def _get_window_covering_cluster(
         _LOGGER.error("ZHA integration not loaded")
         return None
 
-    # ZHA data structure changed - handle both old dict and new object
-    if hasattr(zha_data, "gateway"):
-        gateway = zha_data.gateway  # New: HAZHAData object
-    elif isinstance(zha_data, dict):
-        gateway = zha_data.get("gateway")  # Old: dictionary
-    else:
-        gateway = None
-
+    gateway = resolve_zha_gateway(zha_data)
     if not gateway:
         _LOGGER.error("ZHA gateway not found")
         return None

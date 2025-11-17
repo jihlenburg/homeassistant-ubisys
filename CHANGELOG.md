@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6.1] - 2025-11-17
+
+### Fixed
+- **Critical**: Fixed ZHA gateway resolution failure on newer Home Assistant versions
+  - Calibration was failing with "ZHA gateway not found" error
+  - Root cause: Inline gateway resolution only handled 2 of 3 HA data structure patterns
+  - Newer HA versions use `{entry_id: HAZHAData}` pattern which was not handled
+  - Solution: Extracted robust `resolve_zha_gateway()` helper to `helpers.py`
+  - Now handles all 3 known HA patterns: direct object, dict with "gateway" key, and dict of HAZHAData objects
+  - Uses defensive `iter_candidates()` pattern to probe both dict itself and dict values
+  - Eliminates duplication across codebase (used in calibration, config, input modules)
+  - Future-proof: extensible design for HA's evolving data structures
+
+### Technical Details
+- Added `resolve_zha_gateway(zha_data)` to `helpers.py`
+- Updated `_get_window_covering_cluster()` in `j1_calibration.py` to use new helper
+- Gateway resolution now checks: `zha_data.gateway`, `zha_data["gateway"]`, and `zha_data[entry_id].gateway`
+- Graceful failure: returns None if gateway not found, lets callers provide context-specific error messages
+
 ## [1.3.6] - 2025-11-17
 
 ### Added
@@ -29,6 +48,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `_validate_device_ready()`: Pre-flight checks
   - `async_tune_j1()`: Advanced tuning service handler
 - Cleaned up imports (removed duplicates, restored required constants)
+- ZHA gateway discovery now handles Home Assistant's entry-scoped ZHA data
+  structure, preventing "ZHA gateway not found" errors during calibration
+  and D1 service calls.
 
 ## [1.3.5.2] - 2025-11-17
 

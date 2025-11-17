@@ -50,6 +50,43 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def resolve_zha_gateway(zha_data: Any) -> Any | None:
+    """Extract ZHA gateway object from Home Assistant's zha data container.
+
+    Home Assistant has changed how it stores ZHA runtime data over time:
+    - Older versions exposed a HAZHAData object directly at hass.data["zha"]
+    - Transitional versions stored {"gateway": gateway}
+    - Current versions store {entry_id: HAZHAData} (dict of entry-specific data)
+
+    This helper inspects those layouts in order and returns the first gateway
+    it finds. Callers are still responsible for logging errors if the result is
+    None, since some call sites want different error wording.
+    """
+
+    if not zha_data:
+        return None
+
+    def iter_candidates(obj: Any) -> list[Any]:
+        values: list[Any] = [obj]
+        if isinstance(obj, dict):
+            values.extend(obj.values())
+        return values
+
+    for candidate in iter_candidates(zha_data):
+        if not candidate:
+            continue
+        if hasattr(candidate, "gateway"):
+            gateway = getattr(candidate, "gateway")
+            if gateway:
+                return gateway
+        if isinstance(candidate, dict):
+            gateway = candidate.get("gateway")
+            if gateway:
+                return gateway
+
+    return None
+
+
 # ==============================================================================
 # DEVICE REGISTRY UTILITIES
 # ==============================================================================
@@ -218,14 +255,7 @@ async def get_cluster(
         _LOGGER.error("ZHA integration not loaded")
         return None
 
-    # ZHA data structure changed - handle both old dict and new object
-    if hasattr(zha_data, "gateway"):
-        gateway = zha_data.gateway  # New: HAZHAData object
-    elif isinstance(zha_data, dict):
-        gateway = zha_data.get("gateway")  # Old: dictionary
-    else:
-        gateway = None
-
+    gateway = resolve_zha_gateway(zha_data)
     if not gateway:
         _LOGGER.error("ZHA gateway not found")
         return None
