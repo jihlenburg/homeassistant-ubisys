@@ -208,13 +208,14 @@ async def async_calibrate_j1(hass: HomeAssistant, call: ServiceCall) -> None:
     # Test Mode: health check without writes or movements
     if test_mode:
         from .logtools import info_banner, kv
-    if is_verbose_info_logging(hass):
-        info_banner(
-            _LOGGER,
-            "J1 Calibration Test Mode",
-            entity_id=entity_id,
-            device_ieee=device_ieee,
-        )
+
+        if is_verbose_info_logging(hass):
+            info_banner(
+                _LOGGER,
+                "J1 Calibration Test Mode",
+                entity_id=entity_id,
+                device_ieee=device_ieee,
+            )
         # Pre-flight validation and cluster presence
         await _validate_device_ready(hass, zha_entity_id)
         cluster = await _get_window_covering_cluster(hass, device_ieee)

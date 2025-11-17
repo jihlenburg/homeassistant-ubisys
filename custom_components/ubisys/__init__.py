@@ -333,19 +333,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                             break
 
                     if ieee:
-                        # Cleanup orphaned entities for this device
-                        orphaned_count = hass.async_create_task(
-                            _cleanup_orphaned_entities(hass, ieee)
-                        )
+                        # Cleanup orphaned entities for this device (run in background)
+                        hass.async_create_task(_cleanup_orphaned_entities(hass, ieee))
 
-                        # Untrack ZHA entities for this device
-                        tracked = hass.data.get(DOMAIN, {}).get("tracked_zha_entities", set())
-                        # Remove any tracked entities that belonged to this device
-                        # (We can't easily determine which ones, but they'll be cleaned
-                        # up naturally when the entity no longer exists)
+                        # Note: We don't untrack ZHA entities here because we can't
+                        # easily determine which tracked entities belonged to this
+                        # device. They'll be cleaned up naturally when the entity
+                        # no longer exists and the entity registry listener checks.
 
                         _LOGGER.log(
-                            logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+                            (
+                                logging.INFO
+                                if is_verbose_info_logging(hass)
+                                else logging.DEBUG
+                            ),
                             "Device %s removed, cleaning up orphaned entities for IEEE %s",
                             device_id,
                             ieee,
@@ -455,7 +456,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 )
 
         # Subscribe to entity registry updates
-        hass.bus.async_listen(er.EVENT_ENTITY_REGISTRY_UPDATED, _entity_registry_listener)
+        hass.bus.async_listen(
+            er.EVENT_ENTITY_REGISTRY_UPDATED, _entity_registry_listener
+        )
 
         # Set up input monitoring for all already-configured devices
         # This handles devices that were configured before this startup
