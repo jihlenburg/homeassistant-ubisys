@@ -3,11 +3,11 @@
   "name": "Ubisys Zigbee Devices",
   "codeowners": ["@jihlenburg"],
   "config_flow": true,
-  "dependencies": ["zha"],
+  "dependencies": ["zha", "logbook"],
   "documentation": "https://github.com/jihlenburg/homeassistant-ubisys",
   "integration_type": "device",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/jihlenburg/homeassistant-ubisys/issues",
   "requirements": [],
-  "version": "1.3.6.5"
+  "version": "1.3.6.6"
 }

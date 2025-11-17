@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6.6] - 2025-11-17
+
+### Fixed
+- **Critical**: Added missing `logbook` dependency to manifest.json
+  - Resolves hassfest CI validation error introduced in v1.3.6.4
+  - When logbook registration was moved inline, dependency declaration was missed
+  - Home Assistant's hassfest validator requires all component imports to be declared
+  - Integration functionality unaffected (only CI validation failed)
+
+### Technical Details
+- Updated `manifest.json` dependencies from `["zha"]` to `["zha", "logbook"]`
+- Satisfies Home Assistant integration quality requirements
+- No code changes - purely metadata fix for CI compliance
+
 ## [1.3.6.5] - 2025-11-17
 
 ### Fixed
