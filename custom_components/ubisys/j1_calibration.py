@@ -66,302 +66,65 @@ TOTAL_CALIBRATION_TIMEOUT = 300  # Maximum 5 minutes total (not yet used)
 
 
 async def async_calibrate_j1(hass: HomeAssistant, call: ServiceCall) -> None:
-    """Service handler for ubisys.calibrate_j1 service.
+    """Handle ubisys.calibrate_j1 service calls (single or multiple entities).
 
-    This is the main entry point for calibration. It performs comprehensive
-    validation, enforces concurrency control, and delegates to the calibration
-    orchestrator.
-
-    Architecture Decision: Why a service, not a cover method?
-
-    We implement calibration as a domain service (ubisys.calibrate_j1) rather
-    than a cover entity method for several reasons:
-        1. Separation of concerns: Calibration is a device operation, not a cover state operation
-        2. Reusability: Service can be called from automations, scripts, UI, and button entity
-        3. Discoverability: Shows up in Developer Tools → Services with full documentation
-        4. Consistency: Follows Home Assistant patterns (e.g., homeassistant.update_entity)
-
-    Security & Validation (Added v1.1.1):
-
-    Performs rigorous parameter validation to prevent:
-        - Type confusion attacks (entity_id must be string)
-        - Wrong platform access (entity must be ubisys, not zha or other)
-        - Missing entity errors (entity must exist in registry)
-
-    Concurrency Control (Added v1.1.1):
-
-    Uses asyncio.Lock (not set-based tracking) to prevent race conditions:
-        - Per-device locking (different devices can calibrate simultaneously)
-        - Atomic check-and-lock operation (eliminates TOCTOU vulnerability)
-        - Automatic lock release via context manager
-        - Clear error message if already in progress
-
-    Service Flow:
-        1. Validate entity_id parameter (type, existence, platform)
-        2. Extract device info from config entry
-        3. Find ZHA cover entity for monitoring
-        4. Acquire device-specific lock (fail if already locked)
-        5. Execute calibration phases
-        6. Release lock automatically
-
-    Service Data:
-        entity_id (required): Entity ID of Ubisys cover to calibrate
-                             Must be a ubisys platform entity (not ZHA entity)
-                             Example: "cover.bedroom_j1"
-
-    Raises:
-        HomeAssistantError: For any of these conditions:
-            - entity_id missing or not a string
-            - entity_id not found in entity registry
-            - entity is not a ubisys entity (wrong platform)
-            - config entry missing or invalid
-            - device information missing
-            - ZHA entity not found
-            - calibration already in progress for this device
-
-    Example Usage:
-        # Via service call
-        service: ubisys.calibrate_j1
-        data:
-          entity_id: cover.bedroom_shade
-
-        # Via automation
-        - service: ubisys.calibrate_j1
-          data:
-            entity_id: cover.bedroom_shade
-
-        # Via button entity (happens automatically when clicked)
-
-    Duration:
-        Typical: 60-120 seconds depending on blind size
-        Roller/Cellular: ~60-90 seconds
-        Venetian: ~90-120 seconds
-
-    See Also:
-        - _perform_calibration(): Orchestrates the 5-phase sequence
-        - button.py: UbisysCalibrationButton calls this service
-        - services.yaml: User-facing service documentation
+    The service schema uses ``cv.entity_ids`` so Home Assistant passes either a
+    string (YAML automations) or a list of strings (UI multi-select). We normalize
+    both cases to a list and process each request sequentially so locking,
+    notifications, and logging remain consistent.
     """
-    entity_id = call.data.get("entity_id")
+
+    raw_entity_ids = call.data.get("entity_id")
     test_mode = bool(call.data.get("test_mode", False))
 
-    # Validate entity_id parameter
-    if not entity_id:
+    if raw_entity_ids is None:
         raise HomeAssistantError("Missing required parameter: entity_id")
 
-    if not isinstance(entity_id, str):
+    entity_ids: list[str]
+    if isinstance(raw_entity_ids, str):
+        entity_ids = [raw_entity_ids]
+    elif isinstance(raw_entity_ids, (list, tuple, set)):
+        if not raw_entity_ids:
+            raise HomeAssistantError("entity_id list cannot be empty")
+        entity_ids = []
+        for idx, entity_id in enumerate(raw_entity_ids, start=1):
+            if not isinstance(entity_id, str) or not entity_id:
+                raise HomeAssistantError(
+                    f"entity_id entries must be non-empty strings (entry {idx})"
+                )
+            entity_ids.append(entity_id)
+    else:
         raise HomeAssistantError(
-            f"entity_id must be a string, got {type(entity_id).__name__}"
+            f"entity_id must be a string or list of strings, got {type(raw_entity_ids).__name__}"
         )
 
-    _LOGGER.info("Starting calibration for entity: %s", entity_id)
-    # Persistent notification: start
-    try:
-        hass.components.persistent_notification.create(
-            title="Ubisys Calibration",
-            message=f"Starting calibration for {entity_id}…",
-            notification_id=f"ubisys_calibration_{entity_id}",
+    successes: list[str] = []
+    failures: dict[str, str] = {}
+
+    for position, entity_id in enumerate(entity_ids, start=1):
+        _LOGGER.debug(
+            "Processing calibration request %d/%d: %s",
+            position,
+            len(entity_ids),
+            entity_id,
         )
-    except Exception:
-        _LOGGER.debug("Unable to create start notification")
-
-    # Verify entity exists and is a Ubisys entity
-
-    entity_registry = er.async_get(hass)
-    entity_entry = entity_registry.async_get(entity_id)
-
-    if not entity_entry:
-        raise HomeAssistantError(f"Entity {entity_id} not found in registry")
-
-    if entity_entry.platform != DOMAIN:
-        raise HomeAssistantError(
-            f"Entity {entity_id} is not a Ubisys entity. "
-            f"Expected platform '{DOMAIN}', got '{entity_entry.platform}'"
-        )
-
-    config_entry_id = entity_entry.config_entry_id
-    if not config_entry_id:
-        raise HomeAssistantError(f"Entity has no config entry: {entity_id}")
-
-    config_entry = hass.config_entries.async_get_entry(config_entry_id)
-    if not config_entry or config_entry.domain != DOMAIN:
-        raise HomeAssistantError(f"Invalid config entry for entity: {entity_id}")
-
-    _LOGGER.debug(
-        "Service call validated: entity_id=%s, platform=%s",
-        entity_id,
-        entity_entry.platform,
-    )
-
-    # Get device information
-    device_ieee = config_entry.data.get(CONF_DEVICE_IEEE)
-    shade_type = config_entry.data.get(CONF_SHADE_TYPE)
-
-    if not device_ieee or not shade_type:
-        raise HomeAssistantError("Missing device information in config entry")
-
-    # Find ZHA cover entity
-    zha_entity_id = await _find_zha_cover_entity(hass, entity_entry.device_id)
-    if not zha_entity_id:
-        raise HomeAssistantError(f"ZHA cover entity not found for: {entity_id}")
-
-    # Test Mode: health check without writes or movements
-    if test_mode:
-        from .logtools import info_banner, kv
-
-        if is_verbose_info_logging(hass):
-            info_banner(
-                _LOGGER,
-                "J1 Calibration Test Mode",
-                entity_id=entity_id,
-                device_ieee=device_ieee,
-            )
-        # Pre-flight validation and cluster presence
-        await _validate_device_ready(hass, zha_entity_id)
-        cluster = await _get_window_covering_cluster(hass, device_ieee)
-        if not cluster:
-            raise HomeAssistantError("WindowCovering cluster unavailable")
-        # Gather a few useful values
-        state = hass.states.get(zha_entity_id)
-        pos = state.attributes.get("current_position") if state else None
         try:
-            read = await cluster.read_attributes(
-                [UBISYS_ATTR_TOTAL_STEPS], manufacturer=UBISYS_MANUFACTURER_CODE
+            await _async_calibrate_single_entity(hass, entity_id, test_mode)
+            successes.append(entity_id)
+        except HomeAssistantError as err:
+            failures[entity_id] = str(err)
+        except Exception as err:  # pragma: no cover - defensive guardrail
+            _LOGGER.exception("Unexpected calibration error for %s", entity_id)
+            failures[entity_id] = str(err)
+
+    if failures:
+        summary = "; ".join(f"{entity}: {error}" for entity, error in failures.items())
+        if successes:
+            raise HomeAssistantError(
+                "Calibration completed with partial failures. "
+                f"Successful: {successes}. Failed: {summary}"
             )
-            total_steps = (
-                read[0].get(UBISYS_ATTR_TOTAL_STEPS)
-                if isinstance(read, list) and read
-                else None
-            )
-        except Exception:
-            total_steps = None
-        kv(
-            _LOGGER,
-            logging.INFO,
-            "Health check",
-            current_position=pos,
-            total_steps=total_steps,
-        )
-        return
-
-    # Initialize device locks dict if needed
-    if "calibration_locks" not in hass.data.setdefault(DOMAIN, {}):
-        hass.data[DOMAIN]["calibration_locks"] = {}
-
-    locks = hass.data[DOMAIN]["calibration_locks"]
-
-    # Get or create lock for this specific device
-    if device_ieee not in locks:
-        locks[device_ieee] = asyncio.Lock()
-
-    device_lock = locks[device_ieee]
-
-    # Check if calibration already in progress (non-blocking check)
-    if device_lock.locked():
-        raise HomeAssistantError(
-            f"Calibration already in progress for device {device_ieee}. "
-            f"Please wait for the current calibration to complete."
-        )
-
-    # Acquire lock and perform calibration
-    async with device_lock:
-        _LOGGER.info(
-            "Acquired calibration lock for device %s - starting calibration",
-            device_ieee,
-        )
-        calibration_start = time.time()
-
-        try:
-            await _perform_calibration(hass, zha_entity_id, device_ieee, shade_type)
-            elapsed = time.time() - calibration_start
-            _LOGGER.info(
-                "Calibration completed successfully for %s in %.1f seconds",
-                entity_id,
-                elapsed,
-            )
-            # Record calibration history
-            hass.data.setdefault(DOMAIN, {}).setdefault("calibration_history", {})
-            hass.data[DOMAIN]["calibration_history"][device_ieee] = {
-                "entity_id": entity_id,
-                "device_ieee": device_ieee,
-                "shade_type": shade_type,
-                "duration_s": round(elapsed, 1),
-                "success": True,
-                "ts": time.time(),
-            }
-            # Persistent notification: success
-            try:
-                hass.components.persistent_notification.create(
-                    title="Ubisys Calibration",
-                    message=f"Calibration completed for {entity_id} in {elapsed:.1f}s.",
-                    notification_id=f"ubisys_calibration_{entity_id}",
-                )
-            except Exception:
-                _LOGGER.debug("Unable to update success notification")
-            # Fire completion event for automations/diagnostics
-            try:
-                from .const import EVENT_UBISYS_CALIBRATION_COMPLETE
-
-                hass.bus.async_fire(
-                    EVENT_UBISYS_CALIBRATION_COMPLETE,
-                    {
-                        "entity_id": entity_id,
-                        "device_ieee": device_ieee,
-                        "shade_type": shade_type,
-                        "duration_s": round(elapsed, 1),
-                    },
-                )
-            except Exception:  # Log-only if event firing fails
-                _LOGGER.debug("Unable to fire calibration completion event")
-        except Exception as err:
-            _LOGGER.error("Calibration failed for %s: %s", entity_id, err)
-            # Record failure in history
-            hass.data.setdefault(DOMAIN, {}).setdefault("calibration_history", {})
-            hass.data[DOMAIN]["calibration_history"][device_ieee] = {
-                "entity_id": entity_id,
-                "device_ieee": device_ieee,
-                "shade_type": shade_type,
-                "duration_s": None,
-                "success": False,
-                "error": str(err),
-                "ts": time.time(),
-            }
-            # Persistent notification: failure
-            try:
-                hass.components.persistent_notification.create(
-                    title="Ubisys Calibration",
-                    message=f"Calibration FAILED for {entity_id}: {err}",
-                    notification_id=f"ubisys_calibration_{entity_id}",
-                )
-            except Exception:
-                _LOGGER.debug("Unable to update failure notification")
-            # Try to exit calibration mode on error
-            try:
-                cluster = await _get_window_covering_cluster(hass, device_ieee)
-                if cluster:
-                    await _exit_calibration_mode(cluster)
-            except Exception as cleanup_err:
-                _LOGGER.error(
-                    "Failed to exit calibration mode during cleanup: %s", cleanup_err
-                )
-            # Fire failure event for automations/diagnostics
-            try:
-                from .const import EVENT_UBISYS_CALIBRATION_FAILED
-
-                hass.bus.async_fire(
-                    EVENT_UBISYS_CALIBRATION_FAILED,
-                    {
-                        "entity_id": entity_id,
-                        "device_ieee": device_ieee,
-                        "shade_type": shade_type,
-                        "error": str(err),
-                    },
-                )
-            except Exception:
-                _LOGGER.debug("Unable to fire calibration failure event")
-            raise HomeAssistantError(f"Calibration failed: {err}") from err
-        finally:
-            _LOGGER.debug("Released calibration lock for device %s", device_ieee)
+        raise HomeAssistantError(f"Calibration failed for all entities: {summary}")
 
 
 async def async_tune_j1(hass: HomeAssistant, call: ServiceCall) -> None:
@@ -440,6 +203,138 @@ async def async_tune_j1(hass: HomeAssistant, call: ServiceCall) -> None:
         raise
     except Exception as err:
         raise HomeAssistantError(f"Failed to tune J1: {err}") from err
+
+
+async def _async_calibrate_single_entity(
+    hass: HomeAssistant,
+    entity_id: str,
+    test_mode: bool,
+) -> None:
+    """Validate inputs, manage locks, and calibrate a single Ubisys cover."""
+
+    entity_id = entity_id.strip()
+    if not entity_id:
+        raise HomeAssistantError("Missing required parameter: entity_id")
+
+    _LOGGER.info("Starting calibration for entity: %s", entity_id)
+    try:
+        hass.components.persistent_notification.create(
+            title="Ubisys Calibration",
+            message=f"Starting calibration for {entity_id}…",
+            notification_id=_get_notification_id(entity_id),
+        )
+    except Exception:  # pragma: no cover - notifications are best-effort
+        _LOGGER.debug("Unable to create start notification")
+
+    entity_registry = er.async_get(hass)
+    entity_entry = entity_registry.async_get(entity_id)
+    if not entity_entry:
+        raise HomeAssistantError(f"Entity {entity_id} not found in registry")
+    if entity_entry.platform != DOMAIN:
+        raise HomeAssistantError(
+            f"Entity {entity_id} is not a Ubisys entity. "
+            f"Expected platform '{DOMAIN}', got '{entity_entry.platform}'"
+        )
+
+    config_entry_id = entity_entry.config_entry_id
+    if not config_entry_id:
+        raise HomeAssistantError(f"Entity has no config entry: {entity_id}")
+
+    config_entry = hass.config_entries.async_get_entry(config_entry_id)
+    if not config_entry or config_entry.domain != DOMAIN:
+        raise HomeAssistantError(f"Invalid config entry for entity: {entity_id}")
+
+    device_ieee = config_entry.data.get(CONF_DEVICE_IEEE)
+    shade_type = config_entry.data.get(CONF_SHADE_TYPE)
+    if not device_ieee or not shade_type:
+        raise HomeAssistantError("Missing device information in config entry")
+
+    zha_entity_id = await _find_zha_cover_entity(hass, entity_entry.device_id)
+    if not zha_entity_id:
+        raise HomeAssistantError(f"ZHA cover entity not found for: {entity_id}")
+
+    if test_mode:
+        await _async_run_calibration_health_check(
+            hass,
+            entity_id,
+            device_ieee,
+            zha_entity_id,
+        )
+        return
+
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN].setdefault("calibration_locks", {})
+    locks: dict[str, asyncio.Lock] = hass.data[DOMAIN]["calibration_locks"]
+    locks.setdefault(device_ieee, asyncio.Lock())
+    device_lock = locks[device_ieee]
+
+    if device_lock.locked():
+        raise HomeAssistantError(
+            f"Calibration already in progress for device {device_ieee}. "
+            "Please wait for the current calibration to complete."
+        )
+
+    async with device_lock:
+        _LOGGER.info(
+            "Acquired calibration lock for device %s - starting calibration",
+            device_ieee,
+        )
+        calibration_start = time.time()
+        try:
+            await _perform_calibration(hass, zha_entity_id, device_ieee, shade_type)
+            elapsed = time.time() - calibration_start
+            _LOGGER.info(
+                "Calibration completed successfully for %s in %.1f seconds",
+                entity_id,
+                elapsed,
+            )
+            _record_calibration_history(
+                hass,
+                device_ieee,
+                {
+                    "entity_id": entity_id,
+                    "device_ieee": device_ieee,
+                    "shade_type": shade_type,
+                    "duration_s": round(elapsed, 1),
+                    "success": True,
+                    "ts": time.time(),
+                },
+            )
+            try:
+                hass.components.persistent_notification.create(
+                    title="Ubisys Calibration",
+                    message=f"Calibration completed for {entity_id} in {elapsed:.1f}s.",
+                    notification_id=_get_notification_id(entity_id),
+                )
+            except Exception:  # pragma: no cover
+                _LOGGER.debug("Unable to update success notification")
+            try:
+                from .const import EVENT_UBISYS_CALIBRATION_COMPLETE
+
+                hass.bus.async_fire(
+                    EVENT_UBISYS_CALIBRATION_COMPLETE,
+                    {
+                        "entity_id": entity_id,
+                        "device_ieee": device_ieee,
+                        "shade_type": shade_type,
+                        "duration_s": round(elapsed, 1),
+                    },
+                )
+            except Exception:  # pragma: no cover
+                _LOGGER.debug("Unable to fire calibration completion event")
+        except Exception as err:
+            await _handle_calibration_failure(
+                hass,
+                entity_id,
+                device_ieee,
+                shade_type,
+                err,
+            )
+            raise
+
+
+def _get_notification_id(entity_id: str) -> str:
+    return f"ubisys_calibration_{entity_id}"
 
 
 async def _find_zha_cover_entity(hass: HomeAssistant, device_id: str) -> str | None:
@@ -558,6 +453,115 @@ async def _validate_device_ready(hass: HomeAssistant, entity_id: str) -> None:
         )
 
     _LOGGER.debug("✓ Pre-flight checks passed for %s", entity_id)
+
+
+async def _async_run_calibration_health_check(
+    hass: HomeAssistant,
+    entity_id: str,
+    device_ieee: str,
+    zha_entity_id: str,
+) -> None:
+    """Perform the read-only test_mode workflow (no writes/movements)."""
+
+    if is_verbose_info_logging(hass):
+        info_banner(
+            _LOGGER,
+            "J1 Calibration Test Mode",
+            entity_id=entity_id,
+            device_ieee=device_ieee,
+        )
+
+    await _validate_device_ready(hass, zha_entity_id)
+    cluster = await _get_window_covering_cluster(hass, device_ieee)
+    if not cluster:
+        raise HomeAssistantError("WindowCovering cluster unavailable")
+
+    state = hass.states.get(zha_entity_id)
+    current_position = state.attributes.get("current_position") if state else None
+    try:
+        read = await cluster.read_attributes(
+            [UBISYS_ATTR_TOTAL_STEPS],
+            manufacturer=UBISYS_MANUFACTURER_CODE,
+        )
+        total_steps = (
+            read[0].get(UBISYS_ATTR_TOTAL_STEPS)
+            if isinstance(read, list) and read
+            else None
+        )
+    except Exception:  # pragma: no cover - diagnostic helper
+        total_steps = None
+
+    kv(
+        _LOGGER,
+        logging.INFO,
+        "Health check",
+        entity_id=entity_id,
+        device_ieee=device_ieee,
+        current_position=current_position,
+        total_steps=total_steps,
+    )
+
+
+def _record_calibration_history(
+    hass: HomeAssistant,
+    device_ieee: str,
+    data: dict[str, object],
+) -> None:
+    hass.data.setdefault(DOMAIN, {}).setdefault("calibration_history", {})
+    hass.data[DOMAIN]["calibration_history"][device_ieee] = data
+
+
+async def _handle_calibration_failure(
+    hass: HomeAssistant,
+    entity_id: str,
+    device_ieee: str,
+    shade_type: str,
+    err: Exception,
+) -> None:
+    """Shared cleanup/logging for calibration failures."""
+
+    _LOGGER.error("Calibration failed for %s: %s", entity_id, err)
+    _record_calibration_history(
+        hass,
+        device_ieee,
+        {
+            "entity_id": entity_id,
+            "device_ieee": device_ieee,
+            "shade_type": shade_type,
+            "duration_s": None,
+            "success": False,
+            "error": str(err),
+            "ts": time.time(),
+        },
+    )
+    try:
+        hass.components.persistent_notification.create(
+            title="Ubisys Calibration",
+            message=f"Calibration FAILED for {entity_id}: {err}",
+            notification_id=_get_notification_id(entity_id),
+        )
+    except Exception:  # pragma: no cover
+        _LOGGER.debug("Unable to update failure notification")
+    try:
+        cluster = await _get_window_covering_cluster(hass, device_ieee)
+        if cluster:
+            await _exit_calibration_mode(cluster)
+    except Exception as cleanup_err:  # pragma: no cover
+        _LOGGER.error("Failed to exit calibration mode during cleanup: %s", cleanup_err)
+    try:
+        from .const import EVENT_UBISYS_CALIBRATION_FAILED
+
+        hass.bus.async_fire(
+            EVENT_UBISYS_CALIBRATION_FAILED,
+            {
+                "entity_id": entity_id,
+                "device_ieee": device_ieee,
+                "shade_type": shade_type,
+                "error": str(err),
+            },
+        )
+    except Exception:  # pragma: no cover
+        _LOGGER.debug("Unable to fire calibration failure event")
 
 
 async def _calibration_phase_1_enter_mode(
@@ -885,8 +889,6 @@ async def _calibration_phase_3_find_bottom(
         )
 
         # Handle both name and ID in response
-        from typing import cast
-
         total_steps = cast(
             int | None, result.get("total_steps") or result.get(UBISYS_ATTR_TOTAL_STEPS)
         )

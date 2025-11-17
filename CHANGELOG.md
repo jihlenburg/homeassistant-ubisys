@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6] - 2025-11-17
+
+### Added
+- Multi-entity calibration support for `ubisys.calibrate_j1` service
+  - Accepts single entity ID or list of entity IDs
+  - Processes entities sequentially with per-device locking
+  - Reports partial failures with detailed summary
+  - Each entity processed independently (failure doesn't stop others)
+
+### Changed
+- Refactored J1 calibration module for better separation of concerns
+  - `async_calibrate_j1()`: Entry point handling multiple entities
+  - `_async_calibrate_single_entity()`: Single entity validation & calibration
+  - `_async_run_calibration_health_check()`: Dedicated test mode function
+- Updated documentation and service descriptions for multi-entity workflow
+
+### Fixed
+- Restored missing helper functions after refactoring
+  - `_find_zha_cover_entity()`: ZHA entity lookup
+  - `_validate_device_ready()`: Pre-flight checks
+  - `async_tune_j1()`: Advanced tuning service handler
+- Cleaned up imports (removed duplicates, restored required constants)
+
 ## [1.3.5.2] - 2025-11-17
 
 ### Fixed

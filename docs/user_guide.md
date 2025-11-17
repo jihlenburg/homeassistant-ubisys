@@ -262,17 +262,21 @@ The integration provides these services:
 
 #### `ubisys.calibrate_j1`
 
-Run automated calibration for J1 window coverings.
+Run automated calibration for J1 window coverings. You can target a single cover
+or select multiple Ubisys covers; the integration calibrates them sequentially
+so each device has exclusive access to the Zigbee radio.
 
 **Fields:**
-- `entity_id` (required): Ubisys cover entity
+- `entity_id` (required): One **or more** Ubisys cover entities
 - `test_mode` (optional): Read-only health check (no movement)
 
 **Example:**
 ```yaml
 service: ubisys.calibrate_j1
 data:
-  entity_id: cover.bedroom_shade
+  entity_id:
+    - cover.bedroom_shade
+    - cover.office_shade
 ```
 
 #### `ubisys.tune_j1_advanced`

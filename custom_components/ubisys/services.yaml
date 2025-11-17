@@ -33,12 +33,15 @@ calibrate_j1:
   fields:
     entity_id:
       name: Cover Entity
-      description: The Ubisys J1 cover entity you want to calibrate.
+      description: >
+        One or more Ubisys J1 cover entities to calibrate. When multiple entities
+        are selected they are processed sequentially to avoid wireless contention.
       required: true
       selector:
         entity:
           domain: cover
           integration: ubisys
+          multiple: true
     test_mode:
       name: Test Mode (no writes)
       description: Perform a health check without entering calibration or writing attributes.

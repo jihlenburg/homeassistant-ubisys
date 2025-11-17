@@ -58,8 +58,8 @@ Shade type naming (Z2M parity):
 
 1. Navigate to **Developer Tools** → **Services**
 2. Select service: `ubisys.calibrate_j1`
-3. Choose your entity from the dropdown
-4. Click **Call Service**
+3. Choose one **or multiple** Ubisys cover entities from the dropdown
+4. Click **Call Service** – entities are calibrated sequentially
 
 ![Calibration Service Screenshot](https://via.placeholder.com/600x300?text=Service+Call+Screenshot)
 
@@ -68,8 +68,13 @@ Shade type naming (Z2M parity):
 ```yaml
 service: ubisys.calibrate_j1
 data:
-  entity_id: cover.bedroom_shade
+  entity_id:
+    - cover.bedroom_shade
+    - cover.office_shade
 ```
+
+> ℹ️ **Batch calibrations**: If any entity fails, the service raises a single
+> error summarizing the failures while still completing the successful ones.
 
 ### Method 3: Via Automation
 
