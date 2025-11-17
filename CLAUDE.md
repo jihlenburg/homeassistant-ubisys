@@ -681,15 +681,34 @@ async def _async_update_from_zha(self) -> None:
 
 ## Version Updates
 
+### Versioning Scheme
+
+This project uses a **consecutive patch versioning** scheme:
+
+- **Format**: `1.3.6.xxx` where `xxx` increments consecutively
+- **Current baseline**: `1.3.6` (latest feature release)
+- **Next releases**: `1.3.6.1`, `1.3.6.2`, `1.3.6.3`, etc.
+- **Only the last digit increments** for all subsequent releases (fixes, features, improvements)
+
+**Examples:**
+```
+1.3.6     ← Feature release (multi-entity calibration)
+1.3.6.1   ← Next release (any change: fix, feature, docs)
+1.3.6.2   ← Following release
+1.3.6.3   ← And so on...
+```
+
+### Release Process
+
 To release a new version:
 
-1. Update version in `custom_components/ubisys/manifest.json`
-2. Move "Unreleased" items in `CHANGELOG.md` to new version section `[X.Y.Z] - YYYY-MM-DD`
+1. Update version in `custom_components/ubisys/manifest.json` (e.g., `1.3.6.1`)
+2. Move "Unreleased" items in `CHANGELOG.md` to new version section `[1.3.6.X] - YYYY-MM-DD`
 3. Update badges in `README.md` if needed
-4. Commit with message: `chore: bump version to X.Y.Z`
-5. Tag: `git tag -a vX.Y.Z -m "Release version X.Y.Z"`
-6. Push tag: `git push origin vX.Y.Z`
-7. **Create GitHub Release**: `./scripts/create_release.sh vX.Y.Z` (requires `gh` CLI)
+4. Commit with message: `chore: bump version to 1.3.6.X` or `feat(v1.3.6.X): description`
+5. Tag: `git tag -a v1.3.6.X -m "Release version 1.3.6.X"`
+6. Push tag: `git push origin v1.3.6.X`
+7. **Create GitHub Release**: `./scripts/create_release.sh v1.3.6.X` (requires `gh` CLI)
    - This extracts release notes from CHANGELOG.md and creates a GitHub Release
    - Alternatively, create manually at: https://github.com/jihlenburg/homeassistant-ubisys/releases/new
 8. HACS will auto-detect the new release and "Read release announcement" will link to it
