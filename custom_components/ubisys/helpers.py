@@ -107,28 +107,34 @@ def resolve_zha_gateway(zha_data: Any) -> Any | None:
             continue
 
         candidate_type = type(candidate).__name__
+        has_gateway = hasattr(candidate, "gateway") or hasattr(
+            candidate, "gateway_proxy"
+        )
         _LOGGER.debug(
             "resolve_zha_gateway: candidate[%d] type=%s, has_gateway_attr=%s, is_dict=%s",
             idx,
             candidate_type,
-            hasattr(candidate, "gateway"),
+            has_gateway,
             isinstance(candidate, dict),
         )
 
-        # Try attribute access
-        if hasattr(candidate, "gateway"):
-            gateway = getattr(candidate, "gateway")
-            if gateway:
+        # Try attribute access - check both "gateway" (older HA) and "gateway_proxy" (newer HA)
+        for attr_name in ["gateway_proxy", "gateway"]:
+            if hasattr(candidate, attr_name):
+                gateway = getattr(candidate, attr_name)
+                if gateway:
+                    _LOGGER.debug(
+                        "resolve_zha_gateway: ✓ Found gateway via .%s on candidate[%d] (type=%s)",
+                        attr_name,
+                        idx,
+                        candidate_type,
+                    )
+                    return gateway
                 _LOGGER.debug(
-                    "resolve_zha_gateway: ✓ Found gateway via attribute on candidate[%d] (type=%s)",
+                    "resolve_zha_gateway: candidate[%d].%s exists but is None/empty",
                     idx,
-                    candidate_type,
+                    attr_name,
                 )
-                return gateway
-            _LOGGER.debug(
-                "resolve_zha_gateway: candidate[%d].gateway exists but is None/empty",
-                idx,
-            )
 
         # Try dict key access
         if isinstance(candidate, dict):

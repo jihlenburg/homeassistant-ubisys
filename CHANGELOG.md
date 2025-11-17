@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6.5] - 2025-11-17
+
+### Fixed
+- **Critical**: Fixed ZHA gateway resolution for Home Assistant 2025.11+ with new HAZHAData structure
+  - Updated `resolve_zha_gateway()` to support both `gateway_proxy` (HA 2025.11+) and `gateway` (older versions)
+  - Resolves "ZHA gateway not found" errors preventing calibration and input monitoring
+  - Backward compatible with older Home Assistant versions
+  - Debug logging enhanced to show which attribute pattern was found (`gateway_proxy` vs `gateway`)
+- **Critical**: Fixed KeyError when loading J1 cover entities with missing shade_type in config
+  - Added graceful fallback: checks `options` first, then `data`, defaults to "roller"
+  - Prevents integration setup failure for config entries created in older versions
+  - Maintains backward compatibility with all previous config entry formats
+  - Existing users will see "roller" shade type behavior until they reconfigure via UI
+
+### Technical Details
+- `helpers.py:resolve_zha_gateway()` now checks for both `.gateway_proxy` and `.gateway` attributes
+- `cover.py:async_setup_entry()` uses safe multi-level lookup: `options → data → default`
+- ZHA data structure changed in HA 2025.11.x from `.gateway` to `.gateway_proxy`
+- All 81 tests passing, code formatted and linted
+
 ## [1.3.6.4] - 2025-11-17
 
 ### Fixed

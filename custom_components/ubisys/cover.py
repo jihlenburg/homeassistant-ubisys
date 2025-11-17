@@ -42,7 +42,12 @@ async def async_setup_entry(
     """Set up Ubisys cover from config entry."""
     device_ieee = config_entry.data[CONF_DEVICE_IEEE]
     device_id = config_entry.data[CONF_DEVICE_ID]
-    shade_type = config_entry.data[CONF_SHADE_TYPE]
+
+    # Get shade_type from options (preferred) or data (fallback)
+    # Default to "roller" if missing (for backward compatibility with older config entries)
+    shade_type = config_entry.options.get(
+        CONF_SHADE_TYPE, config_entry.data.get(CONF_SHADE_TYPE, "roller")
+    )
     model = config_entry.data.get("model", "J1")
 
     # Only create cover entities for J1/J1-R window covering models
