@@ -65,9 +65,11 @@ async def test_async_setup_entry_stores_data_and_hides_zha(hass_full, monkeypatc
     hide = AsyncMock()
     cleanup = AsyncMock(return_value=0)  # Mock cleanup to return 0 orphaned entities
     ensure_device = AsyncMock()  # Mock device creation
+    ensure_zha_enabled = AsyncMock()  # Mock ZHA entity auto-enable
     monkeypatch.setattr(ubisys, "_hide_zha_entity", hide)
     monkeypatch.setattr(ubisys, "_cleanup_orphaned_entities", cleanup)
     monkeypatch.setattr(ubisys, "_ensure_device_entry", ensure_device)
+    monkeypatch.setattr(ubisys, "_ensure_zha_entity_enabled", ensure_zha_enabled)
 
     entry = MagicMock()
     entry.entry_id = "entry42"
@@ -85,6 +87,7 @@ async def test_async_setup_entry_stores_data_and_hides_zha(hass_full, monkeypatc
     # Verify new cleanup and device creation were called
     cleanup.assert_awaited_once_with(hass, "00:11")
     ensure_device.assert_awaited_once_with(hass, entry)
+    ensure_zha_enabled.assert_awaited_once_with(hass, entry)
 
     hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
         entry, ubisys.PLATFORMS
@@ -113,14 +116,17 @@ async def test_async_unload_entry_unhides_and_unloads(hass_full, monkeypatch):
     unhide = AsyncMock()
     unload_monitor = AsyncMock()
     cleanup = AsyncMock(return_value=0)  # Mock cleanup
+    untrack = MagicMock()  # Mock untrack (synchronous function)
     monkeypatch.setattr(ubisys, "_unhide_zha_entity", unhide)
     monkeypatch.setattr(ubisys, "async_unload_input_monitoring", unload_monitor)
     monkeypatch.setattr(ubisys, "_cleanup_orphaned_entities", cleanup)
+    monkeypatch.setattr(ubisys, "_untrack_zha_entities", untrack)
     hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
 
     assert await ubisys.async_unload_entry(hass, entry)
 
     unhide.assert_awaited_once_with(hass, entry)
+    untrack.assert_called_once_with(hass, entry)
     unload_monitor.assert_awaited_once_with(hass)
     cleanup.assert_awaited_once_with(hass, "00:11")  # Verify cleanup was called
     hass.config_entries.async_unload_platforms.assert_awaited_once_with(
