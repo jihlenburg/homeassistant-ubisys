@@ -10,7 +10,7 @@ This guide helps you migrate from earlier versions of the Ubisys integration (v1
 
 **What Changed**:
 - Service `ubisys.configure_s1_input` has been removed
-- Configuration is now done via UI (Settings ’ Devices ’ Configure)
+- Configuration is now done via UI (Settings ï¿½ Devices ï¿½ Configure)
 
 **Migration Steps**:
 
@@ -21,7 +21,7 @@ This guide helps you migrate from earlier versions of the Ubisys integration (v1
    Delete any automation/script that calls this service
 
 3. **Reconfigure via UI**:
-   - Go to Settings ’ Devices & Services ’ Ubisys
+   - Go to Settings ï¿½ Devices & Services ï¿½ Ubisys
    - Select your S1/S1-R device
    - Click "Configure"
    - Select appropriate preset
@@ -43,7 +43,7 @@ data:
 
 If you're developing with this integration:
 
-- `calibration.py` ’ `j1_calibration.py`
+- `calibration.py` ï¿½ `j1_calibration.py`
 - Update imports: `from .j1_calibration import async_calibrate_j1`
 
 ## New Features in v2.1.0
@@ -91,7 +91,7 @@ If you're developing with this integration:
 
 **Cause**: Configuration needs to be reapplied via UI
 
-**Solution**: Reconfigure device through Settings ’ Devices ’ Configure
+**Solution**: Reconfigure device through Settings ï¿½ Devices ï¿½ Configure
 
 ### Import Errors (Developers)
 
@@ -125,13 +125,13 @@ If you encounter issues during migration:
 
 1. Check [Troubleshooting Guide](troubleshooting.md)
 2. Review device-specific docs:
-   - [J1 Calibration](j1_calibration.md)
-   - [D1 Configuration](d1_configuration.md)
-   - [S1 Configuration](s1_configuration.md)
+   - [J1 Calibration](devices/j1_window_covering.md)
+   - [D1 Configuration](devices/d1_universal_dimmer.md)
+   - [S1 Configuration](devices/s1_power_switch.md)
 3. Open issue on GitHub with logs
 
 ## See Also
 
-- [S1 Configuration Guide](s1_configuration.md)
-- [Architecture Overview](shared_architecture.md)
+- [S1 Configuration Guide](devices/s1_power_switch.md)
+- [Contributing Guide](../CONTRIBUTING.md)
 - [Troubleshooting](troubleshooting.md)

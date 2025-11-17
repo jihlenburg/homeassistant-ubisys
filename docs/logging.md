@@ -2,7 +2,7 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
-Docs: [index](index.md) · [common tasks](common_tasks.md) · [troubleshooting](troubleshooting.md)
+Docs: [index](index.md) · [user guide](README.md) · [troubleshooting](troubleshooting.md)
 
 This integration aims to be quiet by default and richly informative on demand.
 

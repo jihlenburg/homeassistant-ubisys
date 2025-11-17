@@ -2,7 +2,7 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
-Docs: [index](index.md) · [support matrix](device_support_matrix.md) · [common tasks](common_tasks.md) · [FAQ](faq.md)
+Docs: [index](index.md) · [user guide](README.md) · [troubleshooting](troubleshooting.md)
 
 ## Device Support
 - [x] J1 — Window covering controller (v1.1.1)
@@ -29,4 +29,4 @@ Docs: [index](index.md) · [support matrix](device_support_matrix.md) · [common
 - [x] D1 dimmer configuration guide (v2.0.0)
 - [ ] S1/S2 switch integration guide
 
-See also: [Architecture Overview](architecture_overview.md)
+See also: [Contributing Guide](../CONTRIBUTING.md)
