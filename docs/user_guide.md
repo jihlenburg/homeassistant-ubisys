@@ -301,10 +301,12 @@ data:
 
 #### `ubisys.configure_d1_phase_mode`
 
-Set D1 dimmer phase control mode.
+Set D1 dimmer phase control mode. Multiple Ubisys lights can be configured in a
+single call; the integration handles them sequentially and applies per-device
+locks to prevent overlapping writes.
 
 **Fields:**
-- `entity_id` (required): Ubisys light entity
+- `entity_id` (required): One or more Ubisys light entities
 - `phase_mode` (required): `automatic` | `forward` | `reverse`
 
 **Important**: Light must be OFF before changing phase mode.
@@ -313,16 +315,19 @@ Set D1 dimmer phase control mode.
 ```yaml
 service: ubisys.configure_d1_phase_mode
 data:
-  entity_id: light.kitchen_dimmer
+  entity_id:
+    - light.kitchen_dimmer
+    - light.office_dimmer
   phase_mode: reverse  # For LEDs
 ```
 
 #### `ubisys.configure_d1_ballast`
 
-Set D1 dimmer ballast min/max levels.
+Set D1 dimmer ballast min/max levels. Multiple lights can be provided; they are
+processed sequentially to maintain Zigbee stability.
 
 **Fields:**
-- `entity_id` (required): Ubisys light entity
+- `entity_id` (required): One or more Ubisys light entities
 - `min_level` (optional): 1-254
 - `max_level` (optional): 1-254
 
@@ -330,7 +335,8 @@ Set D1 dimmer ballast min/max levels.
 ```yaml
 service: ubisys.configure_d1_ballast
 data:
-  entity_id: light.kitchen_dimmer
+  entity_id:
+    - light.kitchen_dimmer
   min_level: 15  # Prevent flickering
   max_level: 254
 ```

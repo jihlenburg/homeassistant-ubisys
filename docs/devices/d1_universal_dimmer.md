@@ -68,6 +68,10 @@ Configure phase control mode when:
 
 ### Configuration Service: configure_d1_phase_mode
 
+You can target one or more Ubisys D1 lights in a single call. The service
+processes them sequentially and applies per-device locks to prevent concurrent
+cluster writes.
+
 #### Important Constraint
 
 ⚠️ **The dimmer output MUST be OFF to change the phase mode.**
@@ -78,7 +82,7 @@ Turn off the light before calling this service. If the light is on, the configur
 
 | Parameter | Required | Type | Description |
 |-----------|----------|------|-------------|
-| `entity_id` | Yes | string | The D1 light entity (e.g., `light.kitchen_dimmer`) |
+| `entity_id` | Yes | string or list | One or more D1 light entities (e.g., `light.kitchen_dimmer`) |
 | `phase_mode` | Yes | string | One of: `automatic`, `forward`, `reverse` |
 
 #### Examples
@@ -201,11 +205,14 @@ Configure ballast levels when:
 
 ### Configuration Service: configure_d1_ballast
 
+Like phase mode, you can configure one or multiple D1 entities at once; the
+integration queues them sequentially.
+
 #### Service Parameters
 
 | Parameter | Required | Type | Valid Range | Description |
 |-----------|----------|------|-------------|-------------|
-| `entity_id` | Yes | string | - | The D1 light entity |
+| `entity_id` | Yes | string or list | - | One or more D1 light entities |
 | `min_level` | No | integer | 1-254 | Minimum brightness level |
 | `max_level` | No | integer | 1-254 | Maximum brightness level |
 

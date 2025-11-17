@@ -95,12 +95,15 @@ configure_d1_phase_mode:
   fields:
     entity_id:
       name: Light Entity
-      description: The Ubisys D1 light entity you want to configure.
+      description: >
+        One or more Ubisys D1 light entities to configure. Requests are processed
+        sequentially per device to avoid overlapping cluster writes.
       required: true
       selector:
         entity:
           domain: light
           integration: ubisys
+          multiple: true
     phase_mode:
       name: Phase Mode
       description: Phase control mode (automatic, forward, or reverse).
@@ -158,12 +161,15 @@ configure_d1_ballast:
   fields:
     entity_id:
       name: Light Entity
-      description: The Ubisys D1 light entity you want to configure.
+      description: >
+        One or more Ubisys D1 light entities to configure. Requests are processed
+        sequentially per device to maintain Zigbee stability.
       required: true
       selector:
         entity:
           domain: light
           integration: ubisys
+          multiple: true
     min_level:
       name: Minimum Level (optional)
       description: Minimum brightness level (1-254). Leave empty to keep current setting.

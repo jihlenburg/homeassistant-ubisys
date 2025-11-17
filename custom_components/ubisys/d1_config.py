@@ -63,6 +63,7 @@ from .const import (
     CLUSTER_DIMMER_SETUP,
     D1_DIMMABLE_LIGHT_ENDPOINT,
     DIMMER_SETUP_ATTR_MODE,
+    DOMAIN,
     PHASE_MODES,
     UBISYS_MANUFACTURER_CODE,
 )
@@ -70,6 +71,7 @@ from .helpers import (
     async_write_and_verify_attrs,
     get_cluster,
     get_entity_device_info,
+    is_verbose_info_logging,
     validate_ubisys_entity,
 )
 from .logtools import Stopwatch, info_banner, kv
@@ -78,6 +80,15 @@ if TYPE_CHECKING:
     pass
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _get_d1_lock(hass: HomeAssistant, device_ieee: str) -> asyncio.Lock:
+    """Return an asyncio.Lock guarding configuration writes for this device."""
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN].setdefault("d1_config_locks", {})
+    locks: dict[str, asyncio.Lock] = hass.data[DOMAIN]["d1_config_locks"]
+    locks.setdefault(device_ieee, asyncio.Lock())
+    return locks[device_ieee]
 
 
 async def async_configure_phase_mode(
@@ -176,68 +187,58 @@ async def async_configure_phase_mode(
         )
     _LOGGER.debug("D1 Config: ✓ Model verification passed")
 
-    # Step 5: Access DimmerSetup cluster (0xFC01) on endpoint 1
-    # According to D1 Technical Reference Section 7.2.8:
-    # - Cluster ID: 0xFC01 (DimmerSetup, manufacturer-specific)
-    # - Endpoint: 1 (Dimmable Light endpoint)
-    # - Attribute: 0x0002 (Mode)
-    # - Manufacturer Code: 0x10F2 (required)
-    cluster = await get_cluster(
-        hass,
-        device_ieee,
-        CLUSTER_DIMMER_SETUP,
-        D1_DIMMABLE_LIGHT_ENDPOINT,
-        "DimmerSetup",
-    )
-
-    if not cluster:
-        raise HomeAssistantError(
-            f"Could not access DimmerSetup cluster for {entity_id}. "
-            f"Ensure the device is online and the D1 quirk is loaded."
-        )
-    kv(
-        _LOGGER,
-        _LOGGER.level,
-        "DimmerSetup accessed",
-        endpoint=D1_DIMMABLE_LIGHT_ENDPOINT,
-    )
-
-    # Step 6: Ensure output is OFF before writing mode
-    # The Mode attribute is writable only when output is OFF.
-    state = hass.states.get(entity_id)
-    if state and state.state == "on":
-        _LOGGER.debug("Light is ON; turning off before mode write")
-        await hass.services.async_call(
-            "light", "turn_off", {"entity_id": entity_id}, blocking=True
-        )
-        await asyncio.sleep(0.5)
-
-    # Step 7: Write phase control mode
-    from .helpers import is_verbose_info_logging
-
-    _LOGGER.log(
-        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
-        "D1 Config: Configuring phase mode for %s: %s (%d)",
-        entity_id,
-        phase_mode,
-        phase_mode_value,
-    )
+    lock = _get_d1_lock(hass, device_ieee)
 
     try:
-        # Write + verify mode with manufacturer code
-        await async_write_and_verify_attrs(
-            cluster,
-            {DIMMER_SETUP_ATTR_MODE: phase_mode_value},
-            manufacturer=UBISYS_MANUFACTURER_CODE,
-        )
-        kv(
-            _LOGGER,
-            _LOGGER.level,
-            "Phase mode set",
-            phase_mode=phase_mode,
-            elapsed_s=round(sw.elapsed, 1),
-        )
+        async with lock:
+            cluster = await get_cluster(
+                hass,
+                device_ieee,
+                CLUSTER_DIMMER_SETUP,
+                D1_DIMMABLE_LIGHT_ENDPOINT,
+                "DimmerSetup",
+            )
 
+            if not cluster:
+                raise HomeAssistantError(
+                    f"Could not access DimmerSetup cluster for {entity_id}. "
+                    f"Ensure the device is online and the D1 quirk is loaded."
+                )
+            kv(
+                _LOGGER,
+                _LOGGER.level,
+                "DimmerSetup accessed",
+                endpoint=D1_DIMMABLE_LIGHT_ENDPOINT,
+            )
+
+            state = hass.states.get(entity_id)
+            if state and state.state == "on":
+                _LOGGER.debug("Light is ON; turning off before mode write")
+                await hass.services.async_call(
+                    "light", "turn_off", {"entity_id": entity_id}, blocking=True
+                )
+                await asyncio.sleep(0.5)
+
+            _LOGGER.log(
+                logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+                "D1 Config: Configuring phase mode for %s: %s (%d)",
+                entity_id,
+                phase_mode,
+                phase_mode_value,
+            )
+
+            await async_write_and_verify_attrs(
+                cluster,
+                {DIMMER_SETUP_ATTR_MODE: phase_mode_value},
+                manufacturer=UBISYS_MANUFACTURER_CODE,
+            )
+            kv(
+                _LOGGER,
+                _LOGGER.level,
+                "Phase mode set",
+                phase_mode=phase_mode,
+                elapsed_s=round(sw.elapsed, 1),
+            )
     except HomeAssistantError:
         # Re-raise HomeAssistantError as-is (already formatted)
         raise
@@ -374,51 +375,57 @@ async def async_configure_ballast(
         )
     _LOGGER.debug("D1 Config: ✓ Model verification passed")
 
-    # Step 5: Access Ballast cluster
-    # CRITICAL FIX (v1.2.0): Ballast is on EP1 (D1_DIMMABLE_LIGHT_ENDPOINT), not EP4
-    cluster = await get_cluster(
-        hass,
-        device_ieee,
-        CLUSTER_BALLAST,
-        D1_DIMMABLE_LIGHT_ENDPOINT,  # EP1 per quirk and manual
-        "Ballast",
-    )
+    lock = _get_d1_lock(hass, device_ieee)
 
-    if not cluster:
-        raise HomeAssistantError(
-            f"Could not access Ballast cluster for {entity_id}. "
-            f"Ensure the device is online and the D1 quirk is loaded."
-        )
-    kv(_LOGGER, _LOGGER.level, "Ballast accessed", endpoint=D1_DIMMABLE_LIGHT_ENDPOINT)
-
-    # Step 6: Build attributes dictionary
-    attributes_to_write = {}
-    if min_level is not None:
-        attributes_to_write[BALLAST_ATTR_MIN_LEVEL] = min_level
-    if max_level is not None:
-        attributes_to_write[BALLAST_ATTR_MAX_LEVEL] = max_level
-
-    _LOGGER.debug(
-        "D1 Config: Writing ballast attributes: %s",
-        attributes_to_write,
-    )
-
-    # Step 7: Write + verify attributes
     try:
-        await async_write_and_verify_attrs(cluster, attributes_to_write)
-        changes = []
-        if min_level is not None:
-            changes.append(f"min_level={min_level}")
-        if max_level is not None:
-            changes.append(f"max_level={max_level}")
-        kv(
-            _LOGGER,
-            _LOGGER.level,
-            "Ballast set",
-            changes=", ".join(changes),
-            elapsed_s=round(sw.elapsed, 1),
-        )
+        async with lock:
+            cluster = await get_cluster(
+                hass,
+                device_ieee,
+                CLUSTER_BALLAST,
+                D1_DIMMABLE_LIGHT_ENDPOINT,
+                "Ballast",
+            )
 
+            if not cluster:
+                raise HomeAssistantError(
+                    f"Could not access Ballast cluster for {entity_id}. "
+                    f"Ensure the device is online and the D1 quirk is loaded."
+                )
+            kv(
+                _LOGGER,
+                _LOGGER.level,
+                "Ballast accessed",
+                endpoint=D1_DIMMABLE_LIGHT_ENDPOINT,
+            )
+
+            attributes_to_write = {}
+            if min_level is not None:
+                attributes_to_write[BALLAST_ATTR_MIN_LEVEL] = min_level
+            if max_level is not None:
+                attributes_to_write[BALLAST_ATTR_MAX_LEVEL] = max_level
+
+            _LOGGER.debug(
+                "D1 Config: Writing ballast attributes: %s",
+                attributes_to_write,
+            )
+
+            await async_write_and_verify_attrs(cluster, attributes_to_write)
+            changes = []
+            if min_level is not None:
+                changes.append(f"min_level={min_level}")
+            if max_level is not None:
+                changes.append(f"max_level={max_level}")
+            kv(
+                _LOGGER,
+                _LOGGER.level,
+                "Ballast set",
+                changes=", ".join(changes),
+                elapsed_s=round(sw.elapsed, 1),
+            )
+
+    except HomeAssistantError:
+        raise
     except Exception as err:
         _LOGGER.error(
             "D1 Config: Failed to write ballast configuration: %s",

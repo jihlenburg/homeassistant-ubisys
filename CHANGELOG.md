@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6.3] - 2025-11-17
+
+### Documentation
+- Updated v1.3.6 release notes to properly document D1 multi-entity service support
+  - `ubisys.configure_d1_phase_mode` and `ubisys.configure_d1_ballast` multi-entity capability
+  - ZHA gateway discovery improvements documented
+- Enhanced D1 Universal Dimmer documentation with multi-entity examples
+- Updated user guide with D1 service usage patterns
+
 ## [1.3.6.2] - 2025-11-17
 
 ### Changed
@@ -55,6 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `_async_calibrate_single_entity()`: Single entity validation & calibration
   - `_async_run_calibration_health_check()`: Dedicated test mode function
 - Updated documentation and service descriptions for multi-entity workflow
+- `ubisys.configure_d1_phase_mode` / `ubisys.configure_d1_ballast` now accept
+  multiple entities per call and serialize writes with per-device locks.
 
 ### Fixed
 - Restored missing helper functions after refactoring

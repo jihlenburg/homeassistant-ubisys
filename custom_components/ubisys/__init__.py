@@ -46,12 +46,14 @@ See Also:
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -195,6 +197,65 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     except Exception:
         _LOGGER.debug("Unable to register J1 tuning service", exc_info=True)
 
+    def _normalize_entity_ids(raw_entity_id: Any) -> list[str]:
+        """Normalize service entity_id payload into a list of strings."""
+        if raw_entity_id is None:
+            raise HomeAssistantError("Missing required parameter: entity_id")
+        if isinstance(raw_entity_id, str):
+            if not raw_entity_id:
+                raise HomeAssistantError("entity_id cannot be empty")
+            return [raw_entity_id]
+        if isinstance(raw_entity_id, (list, tuple, set)):
+            if not raw_entity_id:
+                raise HomeAssistantError("entity_id list cannot be empty")
+            normalized: list[str] = []
+            for idx, entity_id in enumerate(raw_entity_id, start=1):
+                if not isinstance(entity_id, str) or not entity_id:
+                    raise HomeAssistantError(
+                        f"entity_id entries must be non-empty strings (entry {idx})"
+                    )
+                normalized.append(entity_id)
+            return normalized
+        raise HomeAssistantError(
+            f"entity_id must be a string or list of strings, got {type(raw_entity_id).__name__}"
+        )
+
+    async def _run_multi_entity_service(
+        entity_ids: list[str],
+        runner: Callable[[str], Awaitable[None]],
+    ) -> None:
+        """Run a service handler for one or more entities with aggregated errors."""
+        successes: list[str] = []
+        failures: dict[str, str] = {}
+        for idx, entity_id in enumerate(entity_ids, start=1):
+            _LOGGER.debug(
+                "Processing multi-entity service request %d/%d: %s",
+                idx,
+                len(entity_ids),
+                entity_id,
+            )
+            try:
+                await runner(entity_id)
+                successes.append(entity_id)
+            except HomeAssistantError as err:
+                failures[entity_id] = str(err)
+            except Exception as err:  # pragma: no cover - defensive guardrail
+                _LOGGER.exception(
+                    "Service handler raised unexpectedly for %s", entity_id
+                )
+                failures[entity_id] = str(err)
+
+        if failures:
+            summary = "; ".join(
+                f"{entity}: {error}" for entity, error in failures.items()
+            )
+            if successes:
+                raise HomeAssistantError(
+                    "Service completed with partial failures. "
+                    f"Successful: {successes}. Failed: {summary}"
+                )
+            raise HomeAssistantError(f"Service failed for all entities: {summary}")
+
     # Register D1 configuration services
     _LOGGER.debug(
         "Registering D1 phase mode service: %s", SERVICE_CONFIGURE_D1_PHASE_MODE
@@ -202,9 +263,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     async def _configure_phase_mode_handler(call: ServiceCall) -> None:
         """Wrapper to inject hass and extract parameters from call."""
-        entity_id = call.data.get("entity_id")
+        entity_ids = _normalize_entity_ids(call.data.get("entity_id"))
         phase_mode = call.data.get("phase_mode")
-        await async_configure_phase_mode(hass, entity_id, phase_mode)
+        if phase_mode is None:
+            raise HomeAssistantError("Missing required parameter: phase_mode")
+
+        async def runner(entity_id: str) -> None:
+            await async_configure_phase_mode(hass, entity_id, phase_mode)
+
+        await _run_multi_entity_service(entity_ids, runner)
 
     hass.services.async_register(
         DOMAIN,
@@ -222,10 +289,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     async def _configure_ballast_handler(call: ServiceCall) -> None:
         """Wrapper to inject hass and extract parameters from call."""
-        entity_id = call.data.get("entity_id")
+        entity_ids = _normalize_entity_ids(call.data.get("entity_id"))
         min_level = call.data.get("min_level")
         max_level = call.data.get("max_level")
-        await async_configure_ballast(hass, entity_id, min_level, max_level)
+
+        async def runner(entity_id: str) -> None:
+            await async_configure_ballast(hass, entity_id, min_level, max_level)
+
+        await _run_multi_entity_service(entity_ids, runner)
 
     hass.services.async_register(
         DOMAIN,

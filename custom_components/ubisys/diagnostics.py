@@ -6,6 +6,7 @@ troubleshoot issues via Home Assistant's Diagnostics feature.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 
 from homeassistant.components import diagnostics
@@ -16,6 +17,7 @@ from .const import DOMAIN
 from .helpers import resolve_zha_gateway
 
 REDACT_KEYS = {"device_ieee"}
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_get_config_entry_diagnostics(
@@ -71,6 +73,11 @@ async def async_get_config_entry_diagnostics(
                             ],
                         }
                     data["zha_endpoints"] = eps
+            elif ieee:
+                _LOGGER.debug(
+                    "Diagnostics: ZHA gateway unavailable; skipping endpoint dump for %s",
+                    ieee,
+                )
         # Add last calibration info (if recorded)
         last = (
             hass.data.get(DOMAIN, {})
