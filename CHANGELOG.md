@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.4] - 2025-11-17
+
+### Fixed
+- **Critical**: Fixed thread safety violation in entity registry listener
+  - Refactored nested function to class method to enable @callback decorator
+  - Added @_typed_callback decorator to ensure execution in event loop thread
+  - Prevents "calls async_update_entity from wrong thread" error
+  - v1.3.3 attempted to fix mypy by removing decorator, which broke thread safety
+  - Now satisfies both thread safety requirements AND mypy type checking
+
+### Technical Details
+- Entity registry update handlers must run in event loop thread, not thread pool
+- Without @callback decorator, Home Assistant schedules handler as Executor job (separate thread)
+- Calling async_update_entity() from wrong thread triggers verify_event_loop_thread() check
+- Solution: @callback decorator sets _hass_callback attribute → runs in event loop
+- Matches device_tracker pattern from Home Assistant core
+
 ## [1.3.3] - 2025-11-17
 
 ### Fixed
