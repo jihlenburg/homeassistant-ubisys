@@ -16,7 +16,7 @@ from homeassistant.components.cover import (
     CoverEntityFeature,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -259,6 +259,46 @@ class UbisysCover(CoverEntity):
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass, [self._zha_entity_id], self._handle_zha_state_change
+            )
+        )
+
+        # Track entity registry updates to auto-enable ZHA entity if it gets disabled
+        # This prevents ZHA from disabling its entity when it detects our wrapper
+        @_typed_callback
+        def _handle_registry_update(event: Event) -> None:
+            """Handle entity registry update events."""
+            if event.data.get("action") != "update":
+                return
+            if event.data.get("entity_id") != self._zha_entity_id:
+                return
+
+            # Check if ZHA entity was disabled by integration
+            entity_reg = er.async_get(self.hass)
+            zha_entity = entity_reg.async_get(self._zha_entity_id)
+
+            if (
+                zha_entity
+                and zha_entity.disabled_by == er.RegistryEntryDisabler.INTEGRATION
+            ):
+                _LOGGER.info(
+                    "ZHA entity %s was disabled by integration. Re-enabling to maintain wrapper functionality.",
+                    self._zha_entity_id,
+                )
+                try:
+                    entity_reg.async_update_entity(
+                        self._zha_entity_id,
+                        disabled_by=None,
+                    )
+                except Exception as err:
+                    _LOGGER.error(
+                        "Failed to re-enable ZHA entity %s: %s",
+                        self._zha_entity_id,
+                        err,
+                    )
+
+        self.async_on_remove(
+            self.hass.bus.async_listen(
+                er.EVENT_ENTITY_REGISTRY_UPDATED, _handle_registry_update
             )
         )
 
