@@ -264,8 +264,9 @@ class UbisysCover(CoverEntity):
 
         # Track entity registry updates to auto-enable ZHA entity if it gets disabled
         # This prevents ZHA from disabling its entity when it detects our wrapper
-        @_typed_callback
-        def _handle_registry_update(event: Event) -> None:
+        def _handle_registry_update(
+            event: Event[er.EventEntityRegistryUpdatedData],
+        ) -> None:
             """Handle entity registry update events."""
             if event.data.get("action") != "update":
                 return
