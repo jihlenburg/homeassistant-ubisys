@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6.7] - 2025-11-17
+
+### Fixed
+- **Critical**: Fixed ZHAGatewayProxy device access API compatibility
+  - Added support for new `gateway_proxy.gateway.devices` API (HA 2025.11+)
+  - Maintains backward compatibility with `gateway.application_controller.devices` (older HA)
+  - Resolves "ZHAGatewayProxy object has no attribute 'application_controller'" error
+  - Calibration and input monitoring now work on HA 2025.11+
+
+### Technical Details
+- Updated `helpers.py:get_cluster()` to check for both API patterns:
+  - New: `gateway.gateway.devices` (ZHAGatewayProxy wrapping gateway)
+  - Old: `gateway.application_controller.devices` (direct gateway object)
+- Enhanced error logging shows gateway type and available attributes if unknown pattern
+- Full backward compatibility maintained for all HA versions
+
 ## [1.3.6.6] - 2025-11-17
 
 ### Fixed
