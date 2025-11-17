@@ -6,6 +6,7 @@ This documentation is organized to help both users and developers be successful 
   - Getting Started: docs/getting_started.md
   - Common Tasks (Cookbook): docs/common_tasks.md
   - Troubleshooting: docs/troubleshooting.md
+    - J1 Cover "Unavailable" Issues: docs/troubleshooting_j1_unavailable.md
   - Device Triggers (Examples): docs/device_triggers_examples.md
   - Logging Controls & Policy: docs/logging.md
   - FAQ: docs/faq.md

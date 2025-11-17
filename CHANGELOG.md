@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- Restructured cover entity documentation for better organization
+  - Created `troubleshooting_j1_unavailable.md` - user-facing troubleshooting guide
+  - Enhanced `window_covering_architecture.md` - comprehensive developer reference
+  - Added sections: Wrapper Entity Pattern, Auto-Enable Logic, Graceful Degradation, Architecture Evolution
+  - Eliminated duplication between user and developer docs
+  - Integrated new troubleshooting guide into `index.md`
+
+## [1.3.1] - 2025-11-16
+
+### Fixed
+- **Critical**: ZHA entity auto-disabled causing wrapper to be unavailable
+- Wrapper entity now auto-enables ZHA entity if disabled by integration
+- Respects user's choice if entity disabled manually (doesn't override)
+- ZHA entity remains hidden (users only see wrapper), but is enabled for state delegation
+
+### Technical Details
+- v1.3.0's graceful degradation created a chicken-and-egg problem:
+  - ZHA detected wrapper entity and auto-disabled its own entity to prevent duplicates
+  - Wrapper depended on ZHA entity having a state
+  - Result: wrapper showed as "unavailable" indefinitely
+- v1.3.1 solution: Auto-enable ZHA entity during setup if `disabled_by=INTEGRATION`
+  - ZHA entity: `hidden=true` + `enabled=true` = "internal state source"
+  - Wrapper entity: `visible=true` + `enabled=true` = "user-facing entity"
+  - This pattern prevents deadlock while respecting both integrations' roles
+
+### Architecture
+- Added comprehensive inline documentation explaining the problem and solution
+- Defensive checks: only enables if disabled by integration (not by user)
+- Error handling: logs warning if enable fails, graceful degradation continues
+- Idempotent: safe to run multiple times (checks before acting)
+
+## [1.3.0] - 2025-11-16
+
+### Fixed
+- **Critical**: Startup race condition where Ubisys cover entity wouldn't be created if it loaded before ZHA
+- Cover wrapper entity now uses graceful degradation pattern from HA core best practices
+- Entity shows as "unavailable" with clear reason when ZHA entity doesn't exist yet
+- Automatic recovery when ZHA entity appears (no reload/restart needed)
+
+### Technical Details
+- `_find_zha_cover_entity()` now predicts entity ID if ZHA entity not found yet
+- Added `_zha_entity_available` flag to track ZHA entity state
+- Added `available` property that checks ZHA entity existence and availability
+- Enhanced `_sync_state_from_zha()` to handle missing entity gracefully and detect when it appears
+- State change listener automatically triggers recovery when ZHA entity becomes available
+- Pattern based on `homeassistant/components/template/cover.py` and `homeassistant/components/group/cover.py`
+
+### Reliability
+- Wrapper entity ALWAYS created, even if ZHA entity missing (shows as unavailable until ready)
+- No more "Could not find ZHA cover entity" errors during startup
+- Works for both startup race conditions and devices that haven't been paired with ZHA yet
+- Added debug attribute `unavailable_reason` for troubleshooting
+
 ## [1.2.9] - 2025-11-16
 
 ### Fixed

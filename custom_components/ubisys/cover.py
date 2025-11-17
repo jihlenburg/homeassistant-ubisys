@@ -57,16 +57,62 @@ async def async_setup_entry(
         )
         return
 
-    # Find the ZHA cover entity
-    zha_entity_id = await _find_zha_cover_entity(hass, device_id)
+    # Find the ZHA cover entity (or predict entity ID if not found yet)
+    zha_entity_id = await _find_zha_cover_entity(hass, device_id, device_ieee)
 
-    if not zha_entity_id:
-        _LOGGER.error(
-            "Could not find ZHA cover entity for device %s (%s)",
-            device_id,
-            device_ieee,
+    # Auto-enable ZHA entity if disabled by integration
+    #
+    # PROBLEM: ZHA auto-disables its entity when it detects our wrapper exists
+    # (to prevent duplicate UI elements). However, our wrapper architecture
+    # DEPENDS on the ZHA entity having a state to delegate to.
+    #
+    # SOLUTION: Re-enable the ZHA entity, but keep it hidden. This creates:
+    # - ZHA entity: hidden + enabled = "internal state source"
+    # - Wrapper entity: visible + enabled = "user-facing entity"
+    #
+    # This pattern prevents deadlock while respecting both integrations' roles.
+    # See: https://github.com/jihlenburg/homeassistant-ubisys/issues/XXX
+    entity_registry = er.async_get(hass)
+    zha_entity = entity_registry.async_get(zha_entity_id)
+
+    if zha_entity:
+        # Only enable if disabled by integration, NEVER override user's choice!
+        if zha_entity.disabled_by == er.RegistryEntryDisabler.INTEGRATION:
+            _LOGGER.info(
+                "Enabling ZHA entity %s (disabled by integration). "
+                "Entity remains hidden; wrapper provides user interface.",
+                zha_entity_id,
+            )
+            try:
+                entity_registry.async_update_entity(
+                    zha_entity_id,
+                    disabled_by=None,  # Enable the entity
+                    # Note: hidden_by remains unchanged - entity stays hidden
+                )
+            except Exception as err:
+                _LOGGER.warning(
+                    "Failed to enable ZHA entity %s: %s. "
+                    "Wrapper will show as unavailable until manually enabled.",
+                    zha_entity_id,
+                    err,
+                )
+        elif zha_entity.disabled_by is not None:
+            # Disabled by user or other reason - respect that
+            _LOGGER.info(
+                "ZHA entity %s is disabled by %s (not enabling). "
+                "Wrapper will be unavailable until ZHA entity is manually enabled.",
+                zha_entity_id,
+                zha_entity.disabled_by,
+            )
+    else:
+        # Entity doesn't exist yet in registry (using predicted ID)
+        # Graceful degradation will handle this - wrapper shows as unavailable
+        # until ZHA creates the entity
+        _LOGGER.debug(
+            "ZHA entity %s not found in registry yet. "
+            "Wrapper will use graceful degradation until entity appears.",
+            zha_entity_id,
         )
-        return
 
     _LOGGER.log(
         logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
@@ -88,8 +134,23 @@ async def async_setup_entry(
     async_add_entities([cover])
 
 
-async def _find_zha_cover_entity(hass: HomeAssistant, device_id: str) -> str | None:
-    """Find the ZHA cover entity for a device."""
+async def _find_zha_cover_entity(
+    hass: HomeAssistant, device_id: str, device_ieee: str
+) -> str:
+    """Find the ZHA cover entity for a device.
+
+    If the ZHA entity doesn't exist yet (e.g., during startup race condition),
+    this function predicts the entity ID. The wrapper entity will mark itself
+    as unavailable and automatically recover when ZHA creates its entity.
+
+    Args:
+        hass: Home Assistant instance
+        device_id: Device registry ID
+        device_ieee: Device IEEE address for logging and prediction
+
+    Returns:
+        ZHA cover entity ID (either found or predicted)
+    """
     entity_registry = er.async_get(hass)
 
     # Find all entities for this device
@@ -97,9 +158,42 @@ async def _find_zha_cover_entity(hass: HomeAssistant, device_id: str) -> str | N
 
     for entity_entry in entities:
         if entity_entry.platform == "zha" and entity_entry.domain == "cover":
+            _LOGGER.debug(
+                "Found ZHA cover entity %s for device %s",
+                entity_entry.entity_id,
+                device_ieee,
+            )
             return cast(str, entity_entry.entity_id)
 
-    return None
+    # ZHA entity not found - predict entity ID
+    # This handles startup race condition where Ubisys loads before ZHA
+    # ZHA typically creates entity IDs like: cover.{device_name}
+    # We'll use the IEEE as fallback for prediction
+    from homeassistant.helpers import device_registry as dr
+
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get(device_id)
+
+    if device and device.name_by_user:
+        predicted_name = device.name_by_user.lower().replace(" ", "_")
+    elif device and device.name:
+        predicted_name = device.name.lower().replace(" ", "_")
+    else:
+        # Fallback: use IEEE address
+        predicted_name = f"ubisys_{device_ieee.replace(':', '_')}"
+
+    predicted_entity_id = f"cover.{predicted_name}"
+
+    _LOGGER.warning(
+        "ZHA cover entity not found for device %s (%s). "
+        "Predicting entity ID as %s. "
+        "Wrapper entity will be unavailable until ZHA entity appears.",
+        device_id,
+        device_ieee,
+        predicted_entity_id,
+    )
+
+    return predicted_entity_id
 
 
 class UbisysCover(CoverEntity):
@@ -143,6 +237,11 @@ class UbisysCover(CoverEntity):
         self._attr_current_cover_position: int | None = None
         self._attr_current_cover_tilt_position: int | None = None
 
+        # ZHA entity availability tracking (for graceful degradation)
+        # This allows wrapper entity to handle startup race conditions
+        # where ZHA hasn't created its entity yet
+        self._zha_entity_available = False
+
         _LOGGER.debug(
             "Initialized UbisysCover: ieee=%s, zha_entity=%s, shade_type=%s, features=%s",
             device_ieee,
@@ -169,17 +268,46 @@ class UbisysCover(CoverEntity):
         self.hass.async_create_task(self._sync_state_from_zha())
 
     async def _sync_state_from_zha(self) -> None:
-        """Sync state from ZHA entity."""
+        """Sync state from ZHA entity.
+
+        Handles graceful degradation when ZHA entity doesn't exist yet
+        (startup race condition) or becomes unavailable.
+        """
         zha_state = self.hass.states.get(self._zha_entity_id)
 
         if zha_state is None:
-            _LOGGER.warning(
-                "ZHA entity %s not found for sync",
-                self._zha_entity_id,
-            )
+            # ZHA entity not found - handle gracefully
+            if self._zha_entity_available:
+                # Entity was available before, now it's gone
+                _LOGGER.warning(
+                    "ZHA entity %s disappeared for device %s",
+                    self._zha_entity_id,
+                    self._device_ieee,
+                )
+            else:
+                # Entity never existed (likely startup race condition)
+                _LOGGER.debug(
+                    "ZHA entity %s not found for sync (device: %s). "
+                    "Wrapper will be unavailable until ZHA entity appears.",
+                    self._zha_entity_id,
+                    self._device_ieee,
+                )
+
+            self._zha_entity_available = False
+            self.async_write_ha_state()
             return
 
-        # Update state attributes
+        # ZHA entity exists - check if it just appeared
+        if not self._zha_entity_available:
+            _LOGGER.info(
+                "ZHA entity %s became available for device %s. "
+                "Wrapper entity is now operational.",
+                self._zha_entity_id,
+                self._device_ieee,
+            )
+            self._zha_entity_available = True
+
+        # Update state attributes from ZHA entity
         self._attr_is_closed = zha_state.state == "closed"
         self._attr_is_closing = zha_state.attributes.get("is_closing")
         self._attr_is_opening = zha_state.attributes.get("is_opening")
@@ -191,13 +319,44 @@ class UbisysCover(CoverEntity):
         self.async_write_ha_state()
 
     @property
+    def available(self) -> bool:
+        """Return if entity is available.
+
+        Wrapper entity is only available when the underlying ZHA entity exists
+        and is available. This handles startup race conditions where Ubisys loads
+        before ZHA has created its cover entity.
+
+        Returns:
+            True if ZHA entity exists and is available, False otherwise
+        """
+        zha_state = self.hass.states.get(self._zha_entity_id)
+
+        if zha_state is None:
+            # ZHA entity doesn't exist yet (startup race condition)
+            return False
+
+        # Check if ZHA entity is available (not unavailable/unknown)
+        from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+
+        if zha_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return False
+
+        return True
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity specific state attributes."""
-        return {
+        attrs = {
             "shade_type": self._shade_type,
             "zha_entity_id": self._zha_entity_id,
             "integration": "ubisys",
         }
+
+        # Add availability info for debugging
+        if not self._zha_entity_available:
+            attrs["unavailable_reason"] = "ZHA entity not found or unavailable"
+
+        return attrs
 
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Open the cover."""
