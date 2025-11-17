@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.5.2] - 2025-11-17
+
+### Fixed
+- **Critical**: Fixed J1 calibration test_mode indentation bug
+  - Health check block now properly nested under `if test_mode:`
+  - Verbose logging flag now only controls banner display, not entire check
+  - Previously: health check ran when verbose logging enabled, regardless of test_mode
+  - When verbose=on + test_mode=off: calibration aborted (returned early)
+  - When verbose=off + test_mode=on: motor driven (health check skipped)
+- **Tests**: Fixed test failures in integration bootstrap tests
+  - Added mocks for `_ensure_zha_entity_enabled` and `_untrack_zha_entities`
+  - Tests now properly initialize entity registry mocks
+- **Code Quality**: Removed unused variables in `__init__.py` (flake8 cleanup)
+  - Removed unused `orphaned_count` and `tracked` variables
+
+### Documentation
+- **Workflow**: Added comprehensive pre-commit CI workflow guidelines to CLAUDE.md
+  - Documents required steps before every commit (fmt, lint, test, ci)
+  - Historical lesson from v1.3.5.1 CI failures
+  - Test-driven development pattern for core files
+  - Common pitfalls and CI failure recovery procedures
+
+### Technical Details
+- Bug was in `j1_calibration.py:208-245` where `if is_verbose_info_logging(hass):` was not indented under `if test_mode:`
+- This caused the health check to execute based on logging settings instead of test_mode flag
+- Fix ensures test_mode always runs health check and returns before real calibration
+- Verbose logging now only controls whether info_banner is displayed during health check
+
 ## [1.3.5.1] - 2025-11-17
 
 ### Fixed
