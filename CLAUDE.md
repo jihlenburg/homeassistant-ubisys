@@ -729,3 +729,73 @@ Note: Full calibration testing requires actual Ubisys J1 hardware.
 - **Profile**: 0x0104 (Zigbee Home Automation)
 
 The quirk matches device signature `("ubisys", "J1")` and replaces endpoint 2's WindowCovering cluster with the extended `UbisysWindowCovering` cluster.
+
+## Pre-Commit Workflow
+
+**CRITICAL**: Always run the full CI suite locally before committing code changes. This prevents GitHub Actions CI failures and ensures code quality.
+
+### Required Steps Before Every Commit:
+
+```bash
+# 1. Format code with Black
+make fmt
+
+# 2. Run linters (black, isort, flake8, mypy)
+make lint
+
+# 3. Run full test suite
+make test
+
+# 4. (Optional) Run all CI checks at once
+make ci
+```
+
+### Why This Is Critical:
+
+**Historical Lesson (v1.3.5.1 CI failures)**:
+- Modified `__init__.py` but only ran `mypy` locally
+- Did NOT run `black` (code formatter) - caused CI formatting failure
+- Did NOT run `pytest` (test suite) - caused test failures due to missing mocks
+- Result: CI failed on GitHub Actions, requiring emergency fixes
+
+**Root Cause**: Incomplete local validation. Running only `mypy` gives false confidence.
+
+**Prevention**:
+1. **NEVER commit without running `make ci`** (or at minimum `make fmt && make test`)
+2. **Tests must pass locally** - Don't assume "it's just a mock issue"
+3. **Black formatting is not optional** - It's enforced by CI
+4. **Watch for new test fixtures** - When adding functions that access hass.data registries, update test mocks
+
+### Test-Driven Development Pattern:
+
+When modifying core integration files (`__init__.py`, platform files):
+
+1. **Identify affected tests**: Check `tests/test_integration_bootstrap.py`, `tests/test_platform_wrappers.py`
+2. **Run affected tests first**: `pytest tests/test_integration_bootstrap.py -v`
+3. **Add mocks for new functions**: If adding functions that access entity/device registries
+4. **Verify tests pass**: `make test` before committing
+5. **Run full CI**: `make ci` to catch any remaining issues
+
+### Common Pitfalls:
+
+❌ **DON'T**: Run only `mypy` and assume code is ready
+✅ **DO**: Run `make ci` to validate all checks
+
+❌ **DON'T**: Commit without running tests locally
+✅ **DO**: Run `make test` and verify all tests pass
+
+❌ **DON'T**: Skip black formatting ("I'll fix it later")
+✅ **DO**: Run `make fmt` before every commit
+
+❌ **DON'T**: Ignore test failures ("It's probably just the CI environment")
+✅ **DO**: Investigate and fix test failures locally
+
+### CI Failure Recovery:
+
+If CI fails on GitHub Actions despite local testing:
+
+1. **Check the CI logs**: `gh run list --limit 5` and `gh run view <id> --log-failed`
+2. **Identify the specific failure**: Formatting? Linting? Tests?
+3. **Reproduce locally**: Run the exact command that failed (e.g., `black --check .`)
+4. **Fix and verify**: Fix the issue, run `make ci`, commit fix
+5. **Document the gap**: Update this workflow section if a new check was missed
