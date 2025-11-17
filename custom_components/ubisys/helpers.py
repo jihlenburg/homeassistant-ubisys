@@ -64,7 +64,28 @@ def resolve_zha_gateway(zha_data: Any) -> Any | None:
     """
 
     if not zha_data:
+        _LOGGER.debug("resolve_zha_gateway: zha_data is None or empty")
         return None
+
+    # Enhanced diagnostics to understand ZHA data structure
+    _LOGGER.debug(
+        "resolve_zha_gateway: zha_data type=%s, is_dict=%s",
+        type(zha_data).__name__,
+        isinstance(zha_data, dict),
+    )
+
+    if isinstance(zha_data, dict):
+        _LOGGER.debug(
+            "resolve_zha_gateway: dict keys=%s",
+            list(zha_data.keys())[:10],  # Limit to first 10 keys
+        )
+        # Show types of first few values
+        value_types = {k: type(v).__name__ for k, v in list(zha_data.items())[:3]}
+        _LOGGER.debug("resolve_zha_gateway: dict value types (sample)=%s", value_types)
+    else:
+        # Show object attributes
+        attrs = [attr for attr in dir(zha_data) if not attr.startswith("_")][:10]
+        _LOGGER.debug("resolve_zha_gateway: object attributes (sample)=%s", attrs)
 
     def iter_candidates(obj: Any) -> list[Any]:
         values: list[Any] = [obj]
@@ -72,18 +93,69 @@ def resolve_zha_gateway(zha_data: Any) -> Any | None:
             values.extend(obj.values())
         return values
 
-    for candidate in iter_candidates(zha_data):
+    candidates = iter_candidates(zha_data)
+    _LOGGER.debug(
+        "resolve_zha_gateway: checking %d candidates (obj + dict values)",
+        len(candidates),
+    )
+
+    for idx, candidate in enumerate(candidates):
         if not candidate:
+            _LOGGER.debug(
+                "resolve_zha_gateway: candidate[%d] is None/empty, skipping", idx
+            )
             continue
+
+        candidate_type = type(candidate).__name__
+        _LOGGER.debug(
+            "resolve_zha_gateway: candidate[%d] type=%s, has_gateway_attr=%s, is_dict=%s",
+            idx,
+            candidate_type,
+            hasattr(candidate, "gateway"),
+            isinstance(candidate, dict),
+        )
+
+        # Try attribute access
         if hasattr(candidate, "gateway"):
             gateway = getattr(candidate, "gateway")
             if gateway:
+                _LOGGER.debug(
+                    "resolve_zha_gateway: ✓ Found gateway via attribute on candidate[%d] (type=%s)",
+                    idx,
+                    candidate_type,
+                )
                 return gateway
-        if isinstance(candidate, dict):
-            gateway = candidate.get("gateway")
-            if gateway:
-                return gateway
+            _LOGGER.debug(
+                "resolve_zha_gateway: candidate[%d].gateway exists but is None/empty",
+                idx,
+            )
 
+        # Try dict key access
+        if isinstance(candidate, dict):
+            if "gateway" in candidate:
+                gateway = candidate.get("gateway")
+                if gateway:
+                    _LOGGER.debug(
+                        "resolve_zha_gateway: ✓ Found gateway via dict key on candidate[%d]",
+                        idx,
+                    )
+                    return gateway
+                _LOGGER.debug(
+                    "resolve_zha_gateway: candidate[%d]['gateway'] exists but is None/empty",
+                    idx,
+                )
+            else:
+                _LOGGER.debug(
+                    "resolve_zha_gateway: candidate[%d] dict has no 'gateway' key (keys=%s)",
+                    idx,
+                    list(candidate.keys())[:5],
+                )
+
+    _LOGGER.warning(
+        "resolve_zha_gateway: ✗ No gateway found after checking %d candidates. "
+        "ZHA data structure may have changed. Please report this with debug logs.",
+        len(candidates),
+    )
     return None
 
 

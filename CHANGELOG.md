@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6.4] - 2025-11-17
+
+### Fixed
+- **Critical**: Eliminated Python 3.13+ blocking I/O warning for logbook platform
+  - Moved logbook event registration from separate `logbook.py` file to inline code in `__init__.py`
+  - Python 3.13+ warns about synchronous `import_module()` calls in async event loop
+  - Home Assistant's platform loader was importing `logbook.py` synchronously
+  - Solution: Register logbook events directly in `async_setup()` to avoid platform discovery
+  - Deleted obsolete `logbook.py` file and associated test
+  - No more "Detected blocking call to import_module" warnings in logs
+
+### Improved
+- Enhanced diagnostic logging in `resolve_zha_gateway()` helper
+  - Added comprehensive debug output showing ZHA data structure inspection
+  - Logs data type, dict keys/values, candidate checks, and search results
+  - Helps troubleshoot "ZHA gateway not found" errors on different HA versions
+  - Warning logged if gateway not found with instructions to report with debug logs
+  - Makes future ZHA data structure changes easier to diagnose and fix
+
+### Technical Details
+- Logbook registration now calls `logbook.async_describe_event()` directly in `async_setup()`
+- Event descriptions: `ubisys_calibration_complete` and `ubisys_input_event`
+- Enhanced `resolve_zha_gateway()` logging shows candidate types and search progress
+- All 81 tests passing, code formatted and linted
+
 ## [1.3.6.3] - 2025-11-17
 
 ### Documentation

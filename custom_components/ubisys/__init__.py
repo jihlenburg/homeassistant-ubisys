@@ -542,6 +542,38 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # This ensures ZHA is ready before we try to interact with it
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, async_setup_after_start)
 
+    # Register logbook event descriptions (moved from logbook.py to avoid blocking I/O)
+    # Python 3.13+ warns about synchronous import_module() in async event loop
+    # By registering directly here, we avoid the separate platform file
+    try:
+        from homeassistant.components import logbook
+
+        from .const import EVENT_UBISYS_CALIBRATION_COMPLETE, EVENT_UBISYS_INPUT
+
+        logbook.async_describe_event(
+            hass,
+            DOMAIN,
+            EVENT_UBISYS_CALIBRATION_COMPLETE,
+            lambda event: (
+                f"Ubisys calibration completed "
+                f"({event.data.get('shade_type', 'unknown')}) "
+                f"in {event.data.get('duration_s', '?')}s"
+            ),
+        )
+        logbook.async_describe_event(
+            hass,
+            DOMAIN,
+            EVENT_UBISYS_INPUT,
+            lambda event: (
+                f"Ubisys input {event.data.get('press_type', 'unknown')} "
+                f"on input {event.data.get('input_number', '?')}"
+            ),
+        )
+        _LOGGER.debug("Registered logbook event descriptions")
+    except Exception as err:
+        # Logbook integration might not be available - this is non-critical
+        _LOGGER.debug("Could not register logbook descriptions: %s", err)
+
     return True
 
 
