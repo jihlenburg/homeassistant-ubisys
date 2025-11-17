@@ -33,6 +33,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Troubleshooting: `docs/troubleshooting.md` (consolidated problem-solving)
   - Developer documentation: `CONTRIBUTING.md` (architecture, testing, contributing)
 
+### Fixed
+- **Critical**: Fixed multiple Home Assistant 2024.1+ compatibility issues
+  - Fixed service registration pattern - D1 service handlers now receive correct parameters
+  - Fixed ZHA data access compatibility (HAZHAData object vs dictionary)
+  - Applied compatibility fixes in: `__init__.py`, `j1_calibration.py`, `diagnostics.py`, `helpers.py`
+
+### Technical Details
+- **Service Registration Bug**: D1 service wrappers were passing `call` object, but handlers expected individual parameters (`entity_id`, `phase_mode`, etc.)
+  - Fixed `_configure_phase_mode_handler()` to extract and pass parameters correctly
+  - Fixed `_configure_ballast_handler()` to extract and pass parameters correctly
+- **ZHA Data Access Bug**: HA 2024.1+ changed ZHA data from `dict` to `HAZHAData` object
+  - Old pattern: `zha_data.get("gateway")` or `zha_data["gateway"]`
+  - New pattern: `zha_data.gateway` (object attribute)
+  - Applied compatibility layer that checks `hasattr()` first, falls back to dict access
+  - Ensures backward compatibility with older HA versions
+  - Fixed in 3 locations: `j1_calibration.py`, `diagnostics.py`, and `helpers.py` (from v1.3.1)
+
 ## [1.3.1] - 2025-11-16
 
 ### Fixed

@@ -55,10 +55,18 @@ async def async_get_config_entry_diagnostics(
         if zha_data:
             from zigpy.types import EUI64
 
+            # ZHA data structure changed - handle both old dict and new object
+            if hasattr(zha_data, "gateway"):
+                gateway = zha_data.gateway  # New: HAZHAData object
+            elif isinstance(zha_data, dict):
+                gateway = zha_data.get("gateway")  # Old: dictionary
+            else:
+                gateway = None
+
             ieee = entry.data.get("device_ieee")
-            if ieee:
+            if ieee and gateway:
                 eui = EUI64.convert(ieee)
-                device = zha_data["gateway"].application_controller.devices.get(eui)
+                device = gateway.application_controller.devices.get(eui)
                 if device:
                     eps: dict[int, Any] = {}
                     for ep_id, ep in device.endpoints.items():

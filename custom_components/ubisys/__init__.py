@@ -201,8 +201,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     )
 
     async def _configure_phase_mode_handler(call):
-        """Wrapper to inject hass into phase mode handler."""
-        await async_configure_phase_mode(hass, call)
+        """Wrapper to inject hass and extract parameters from call."""
+        entity_id = call.data.get("entity_id")
+        phase_mode = call.data.get("phase_mode")
+        await async_configure_phase_mode(hass, entity_id, phase_mode)
 
     hass.services.async_register(
         DOMAIN,
@@ -219,8 +221,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     _LOGGER.debug("Registering D1 ballast service: %s", SERVICE_CONFIGURE_D1_BALLAST)
 
     async def _configure_ballast_handler(call):
-        """Wrapper to inject hass into ballast handler."""
-        await async_configure_ballast(hass, call)
+        """Wrapper to inject hass and extract parameters from call."""
+        entity_id = call.data.get("entity_id")
+        min_level = call.data.get("min_level")
+        max_level = call.data.get("max_level")
+        await async_configure_ballast(hass, entity_id, min_level, max_level)
 
     hass.services.async_register(
         DOMAIN,

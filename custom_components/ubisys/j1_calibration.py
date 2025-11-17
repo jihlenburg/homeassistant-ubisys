@@ -1567,7 +1567,14 @@ async def _get_window_covering_cluster(
         _LOGGER.error("ZHA integration not loaded")
         return None
 
-    gateway = zha_data.get("gateway")
+    # ZHA data structure changed - handle both old dict and new object
+    if hasattr(zha_data, "gateway"):
+        gateway = zha_data.gateway  # New: HAZHAData object
+    elif isinstance(zha_data, dict):
+        gateway = zha_data.get("gateway")  # Old: dictionary
+    else:
+        gateway = None
+
     if not gateway:
         _LOGGER.error("ZHA gateway not found")
         return None
