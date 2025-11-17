@@ -7,20 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.3.6] - 2025-11-17
+## [1.3.5.1] - 2025-11-17
 
 ### Fixed
 - **Critical**: Fixed uninstall regression introduced in v1.3.5
   - `_unhide_zha_entity()` now checks `hidden_by` instead of `disabled_by`
   - ZHA entities are properly restored when integration is removed
   - Respects "easy to revert to ZHA" architectural constraint
+- **Critical**: Automatic orphaned entity cleanup on device removal
+  - Device registry listener now handles device deletion
+  - Orphaned entities cleaned up immediately when device removed
+  - Prevents ghost entities from persisting after device deletion or crashes
 - Removed unused `Event` import from cover.py (lint compliance)
+
+### Added
+- **Manual cleanup service**: `ubisys.cleanup_orphans`
+  - Manually trigger orphaned entity cleanup for all devices
+  - Useful for historical orphans or troubleshooting
+  - Shows persistent notification with cleanup results
+  - No parameters required
 
 ### Technical Details
 - v1.3.5 changed ZHA entity state from `disabled_by=INTEGRATION` to `disabled_by=None`
 - Original unhide logic checked for `disabled_by=INTEGRATION`, always failing
 - New logic checks `hidden_by=INTEGRATION` (what we actually care about)
 - Conditionally clears `disabled_by` only if set by integration (respects user choice)
+- Device registry listener enhanced to handle "remove" action
+- Hybrid cleanup approach: automatic (device removal) + manual (service call)
+
+### Version Note
+- Adopted 4-part versioning (a.b.c.d) for better hotfix granularity
+- This is hotfix 1 for v1.3.5 (hence 1.3.5.1)
 
 ## [1.3.5] - 2025-11-17
 

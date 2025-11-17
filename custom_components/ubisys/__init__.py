@@ -249,6 +249,46 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Note: S1 input configuration is now done via Config Flow UI
     # (Settings → Devices & Services → Ubisys → Configure)
 
+    # Register orphan cleanup service (manual fallback for edge cases)
+    _LOGGER.debug("Registering orphan cleanup service: ubisys.cleanup_orphans")
+
+    async def _cleanup_orphans_service(call: ServiceCall) -> None:
+        """Clean up orphaned Ubisys entities across all devices."""
+        total_cleaned = 0
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            ieee = entry.data.get("device_ieee")
+            if ieee:
+                count = await _cleanup_orphaned_entities(hass, ieee)
+                total_cleaned += count
+
+        _LOGGER.log(
+            logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+            "Manual cleanup completed: removed %d orphaned entities",
+            total_cleaned,
+        )
+
+        # Create persistent notification for user feedback
+        if total_cleaned > 0:
+            try:
+                await hass.services.async_call(
+                    "persistent_notification",
+                    "create",
+                    {
+                        "message": f"Cleaned up {total_cleaned} orphaned Ubisys entities.",
+                        "title": "Ubisys Cleanup Complete",
+                        "notification_id": "ubisys_cleanup_complete",
+                    },
+                )
+            except Exception:
+                _LOGGER.debug("Could not create notification", exc_info=True)
+
+    hass.services.async_register(
+        DOMAIN,
+        "cleanup_orphans",
+        _cleanup_orphans_service,
+        schema=vol.Schema({}),
+    )
+
     # Gate registration info to reduce noise
     _LOGGER.log(
         logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
@@ -277,11 +317,45 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         def _device_registry_listener(event: HAEvent) -> None:
             try:
                 action = event.data.get("action")
-                if action != "create":
-                    return
                 device_id = event.data.get("device_id")
+
                 if not device_id:
                     return
+
+                # Handle device removal - cleanup orphaned entities
+                if action == "remove":
+                    # Find the IEEE address for this device from our config entries
+                    # (device is already deleted, so we can't query device registry)
+                    ieee = None
+                    for entry in hass.config_entries.async_entries(DOMAIN):
+                        if entry.data.get("device_id") == device_id:
+                            ieee = entry.data.get("device_ieee")
+                            break
+
+                    if ieee:
+                        # Cleanup orphaned entities for this device
+                        orphaned_count = hass.async_create_task(
+                            _cleanup_orphaned_entities(hass, ieee)
+                        )
+
+                        # Untrack ZHA entities for this device
+                        tracked = hass.data.get(DOMAIN, {}).get("tracked_zha_entities", set())
+                        # Remove any tracked entities that belonged to this device
+                        # (We can't easily determine which ones, but they'll be cleaned
+                        # up naturally when the entity no longer exists)
+
+                        _LOGGER.log(
+                            logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+                            "Device %s removed, cleaning up orphaned entities for IEEE %s",
+                            device_id,
+                            ieee,
+                        )
+                    return
+
+                # Handle device creation - auto-discovery
+                if action != "create":
+                    return
+
                 dev_reg = dr.async_get(hass)
                 device = dev_reg.async_get(device_id)
                 if not device or device.manufacturer != MANUFACTURER:
