@@ -61,7 +61,9 @@ async def test_find_zha_cover_entity_returns_first_match(monkeypatch):
     )
 
     hass = DummyHass()
-    result = await cover_mod._find_zha_cover_entity(hass, "device-1", "00:11:22:33:44:55:66:77")
+    result = await cover_mod._find_zha_cover_entity(
+        hass, "device-1", "00:11:22:33:44:55:66:77"
+    )
     assert result == "cover.zha_node"
 
 
