@@ -2,7 +2,7 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
-Docs: [index](index.md) · [user guide](README.md) · [logging policy](logging.md)
+Docs: [index](index.md) · [user guide](user_guide.md) · [logging policy](logging.md)
 
 This guide helps you diagnose and fix common issues with the Ubisys Home Assistant integration.
 
@@ -1234,7 +1234,7 @@ Entities delegate to ZHA rather than talking directly to Zigbee:
 ---
 ##  🔗 Related Documentation
 - [Roadmap](roadmap.md) - Detailed future plans
-- [User Guide](README.md) - Complete integration documentation
+- [User Guide](user_guide.md) - Complete integration documentation
 - [Contributing Guide](../CONTRIBUTING.md) - Developer documentation
 
 ## Repairs

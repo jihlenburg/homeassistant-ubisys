@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Documentation
+- **Clarity improvement**: Renamed `docs/README.md` → `docs/user_guide.md`
+  - Eliminates confusion between top-level README.md (GitHub intro) and comprehensive user guide
+  - Top-level README.md remains as GitHub-focused introduction with badges and quick start
+  - docs/user_guide.md is now clearly identified as the comprehensive integration documentation
+  - All internal links updated to reflect new naming
 - **Major restructuring**: Consolidated documentation from 31 files to 12 files (61% reduction)
   - **Phase 1**: Consolidated 5 troubleshooting files into comprehensive `troubleshooting.md`
   - **Phase 2**: Organized device guides into `docs/devices/` subdirectory

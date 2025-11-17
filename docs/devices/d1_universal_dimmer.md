@@ -2,7 +2,7 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
-Docs: [index](../index.md) · [user guide](../README.md) · [troubleshooting](../troubleshooting.md)
+Docs: [index](../index.md) · [user guide](../user_guide.md) · [troubleshooting](../troubleshooting.md)
 
 This guide explains how to configure and optimize the Ubisys D1 universal dimmer for different load types.
 

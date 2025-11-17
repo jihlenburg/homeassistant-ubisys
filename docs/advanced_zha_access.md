@@ -2,7 +2,7 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
-Docs: [index](index.md) · [user guide](README.md)
+Docs: [index](index.md) · [user guide](user_guide.md)
 
 For advanced users who want to directly access manufacturer attributes via ZHA developer tools.
 

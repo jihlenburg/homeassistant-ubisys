@@ -2,7 +2,7 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
-Docs: [index](index.md) · [user guide](README.md) · [troubleshooting](troubleshooting.md)
+Docs: [index](index.md) · [user guide](user_guide.md) · [troubleshooting](troubleshooting.md)
 
 ## Device Support
 - [x] J1 — Window covering controller (v1.1.1)

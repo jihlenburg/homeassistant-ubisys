@@ -3,7 +3,7 @@
 This documentation is organized to help both users and developers be successful quickly.
 
 - For Users
-  - User Guide: docs/README.md
+  - User Guide: docs/user_guide.md
   - Troubleshooting: docs/troubleshooting.md
   - Logging Controls & Policy: docs/logging.md
 - Device Guides
