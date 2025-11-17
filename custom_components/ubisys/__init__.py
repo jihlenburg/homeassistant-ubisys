@@ -147,10 +147,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     # Register J1 calibration service
     _LOGGER.debug("Registering J1 calibration service: %s", SERVICE_CALIBRATE)
+
+    async def _calibrate_j1_handler(call):
+        """Wrapper to inject hass into calibration handler."""
+        await async_calibrate_j1(hass, call)
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_CALIBRATE,
-        async_calibrate_j1,
+        _calibrate_j1_handler,
         schema=vol.Schema(
             {
                 vol.Required("entity_id"): cv.entity_ids,
@@ -165,10 +170,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         _LOGGER.debug(
             "Registering J1 advanced tuning service: %s", SERVICE_TUNE_J1_ADVANCED
         )
+
+        async def _tune_j1_handler(call):
+            """Wrapper to inject hass into tuning handler."""
+            await async_tune_j1(hass, call)
+
         hass.services.async_register(
             DOMAIN,
             SERVICE_TUNE_J1_ADVANCED,
-            async_tune_j1,
+            _tune_j1_handler,
             schema=vol.Schema(
                 {
                     vol.Required("entity_id"): cv.entity_ids,
@@ -189,10 +199,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     _LOGGER.debug(
         "Registering D1 phase mode service: %s", SERVICE_CONFIGURE_D1_PHASE_MODE
     )
+
+    async def _configure_phase_mode_handler(call):
+        """Wrapper to inject hass into phase mode handler."""
+        await async_configure_phase_mode(hass, call)
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_CONFIGURE_D1_PHASE_MODE,
-        async_configure_phase_mode,
+        _configure_phase_mode_handler,
         schema=vol.Schema(
             {
                 vol.Required("entity_id"): cv.entity_ids,
@@ -202,10 +217,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     )
 
     _LOGGER.debug("Registering D1 ballast service: %s", SERVICE_CONFIGURE_D1_BALLAST)
+
+    async def _configure_ballast_handler(call):
+        """Wrapper to inject hass into ballast handler."""
+        await async_configure_ballast(hass, call)
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_CONFIGURE_D1_BALLAST,
-        async_configure_ballast,
+        _configure_ballast_handler,
         schema=vol.Schema(
             {
                 vol.Required("entity_id"): cv.entity_ids,
