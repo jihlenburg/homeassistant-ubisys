@@ -178,3 +178,60 @@ device = devices.get(device_eui64)
 **Files Modified**:
 - `custom_components/ubisys/j1_calibration.py` (line 1591: added compatibility wrapper)
 - `custom_components/ubisys/diagnostics.py` (line 65: added compatibility wrapper)
+
+---
+
+### Critical Hotfix: ZHA Endpoint API Compatibility (v1.3.7.2)
+
+**Context**: User tested v1.3.7.1 immediately after release and calibration STILL failed, but with a new error: `'Endpoint' object has no attribute 'in_clusters'`
+
+**Root Cause Discovery**:
+- v1.3.7.1 fixed gateway device access but HA 2025.11+ ALSO changed endpoint structure
+- Endpoint objects now wrap the underlying zigpy endpoint
+- Old API: `endpoint.in_clusters`, `endpoint.out_clusters`
+- New API: `endpoint.zigpy_endpoint.in_clusters` or `endpoint.all_cluster_handlers`
+
+**Why v1.3.7.1 Missed This**:
+- Focus was on gateway device access (`gateway.application_controller.devices`)
+- Didn't anticipate that endpoint structure ALSO changed in same HA update
+- Multiple layers of API changes in single HA version (unusual)
+
+**Comprehensive Fix Applied**:
+
+Three files updated with endpoint compatibility wrappers:
+
+1. **j1_calibration.py** (lines 1615-1650, 1657-1667):
+   - EP1 probing: Added three-tier cluster access check
+   - EP2 probing: Same compatibility wrapper
+   - Added diagnostic logging to understand new API structure
+   - Tries: `in_clusters` → `zigpy_endpoint.in_clusters` → `all_cluster_handlers`
+
+2. **helpers.py** (lines 397-417):
+   - `get_cluster()` function updated with endpoint compatibility
+   - Same three-tier check as J1 calibration
+   - Ensures D1 dimmer configuration also works on HA 2025.11+
+
+3. **diagnostics.py** (lines 83-98):
+   - Endpoint iteration for cluster snapshot updated
+   - Checks for `in_clusters`/`out_clusters` vs `zigpy_endpoint` variants
+   - Fallback to empty dicts if neither API available
+
+**Testing**: All 81 CI tests passing
+
+**Impact**:
+- J1 calibration should now FINALLY work on HA 2025.11+
+- D1 configuration services also compatible
+- Diagnostics endpoint snapshots load correctly
+- Complete ZHA API compatibility achieved (both gateway AND endpoint layers)
+
+**Lesson Learned**: Major HA updates can change multiple API layers simultaneously. When fixing API compatibility:
+1. Check gateway access patterns
+2. Check endpoint access patterns
+3. Check cluster access patterns
+4. Test with actual hardware immediately after fix
+5. Don't assume one layer fix = complete compatibility
+
+**Files Modified**:
+- `custom_components/ubisys/j1_calibration.py` (lines 1615-1650, 1657-1667)
+- `custom_components/ubisys/helpers.py` (lines 397-417)
+- `custom_components/ubisys/diagnostics.py` (lines 83-98)

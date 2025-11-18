@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.7.2] - 2025-11-18
+
+### Fixed
+- **Critical**: Fixed ZHA Endpoint API compatibility (missed in v1.3.7.1)
+  - Fixed `'Endpoint' object has no attribute 'in_clusters'` error on HA 2025.11+
+  - Updated `j1_calibration.py:_get_window_covering_cluster()` EP1 and EP2 probing with endpoint compatibility wrapper
+  - Updated `helpers.py:get_cluster()` with endpoint compatibility wrapper
+  - Updated `diagnostics.py:async_get_config_entry_diagnostics()` endpoint iteration with compatibility wrapper
+  - J1 calibration now actually works on HA 2025.11+ (was still broken in v1.3.7.1)
+  - Diagnostics endpoint snapshots now load correctly
+
+### Technical Details
+- HA 2025.11+ changed both gateway AND endpoint structure
+- Endpoints now wrap underlying zigpy endpoints
+- Old API: `endpoint.in_clusters`, `endpoint.out_clusters`
+- New API: `endpoint.zigpy_endpoint.in_clusters` or `endpoint.all_cluster_handlers`
+- Added three-tier compatibility check for all cluster access points
+- v1.3.7.1 only fixed gateway device access but missed endpoint cluster access
+
 ## [1.3.7.1] - 2025-11-18
 
 ### Fixed

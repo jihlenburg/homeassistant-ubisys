@@ -1614,7 +1614,40 @@ async def _get_window_covering_cluster(
         _LOGGER.debug("Probing endpoint 1 for WindowCovering cluster...")
         endpoint = device.endpoints.get(1)
         if endpoint:
-            cluster = endpoint.in_clusters.get(0x0102)
+            # Debug: Log endpoint attributes to understand new API structure
+            _LOGGER.debug(
+                "Endpoint object type=%s, attributes=%s",
+                type(endpoint).__name__,
+                [attr for attr in dir(endpoint) if not attr.startswith("_")][:20],
+            )
+
+            # Try multiple cluster access patterns for compatibility
+            cluster = None
+            if hasattr(endpoint, "in_clusters"):
+                # Old API: direct in_clusters access
+                cluster = endpoint.in_clusters.get(0x0102)
+                _LOGGER.debug("Accessed cluster via endpoint.in_clusters (old API)")
+            elif hasattr(endpoint, "zigpy_endpoint"):
+                # New API: ZHA wraps zigpy endpoint
+                cluster = endpoint.zigpy_endpoint.in_clusters.get(0x0102)
+                _LOGGER.debug(
+                    "Accessed cluster via endpoint.zigpy_endpoint.in_clusters (new API)"
+                )
+            elif hasattr(endpoint, "all_cluster_handlers"):
+                # Alternative new API: cluster handlers
+                handler = endpoint.all_cluster_handlers.get(0x0102)
+                cluster = (
+                    handler.cluster if handler and hasattr(handler, "cluster") else None
+                )
+                _LOGGER.debug(
+                    "Accessed cluster via endpoint.all_cluster_handlers (new API)"
+                )
+            else:
+                _LOGGER.error(
+                    "Endpoint has no known cluster access pattern. Type: %s, Attributes: %s",
+                    type(endpoint).__name__,
+                    [attr for attr in dir(endpoint) if not attr.startswith("_")][:30],
+                )
             if cluster:
                 _LOGGER.log(
                     logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
@@ -1629,7 +1662,17 @@ async def _get_window_covering_cluster(
         _LOGGER.debug("Probing endpoint 2 for WindowCovering cluster...")
         endpoint = device.endpoints.get(2)
         if endpoint:
-            cluster = endpoint.in_clusters.get(0x0102)
+            # Try multiple cluster access patterns for compatibility (same as EP1)
+            cluster = None
+            if hasattr(endpoint, "in_clusters"):
+                cluster = endpoint.in_clusters.get(0x0102)
+            elif hasattr(endpoint, "zigpy_endpoint"):
+                cluster = endpoint.zigpy_endpoint.in_clusters.get(0x0102)
+            elif hasattr(endpoint, "all_cluster_handlers"):
+                handler = endpoint.all_cluster_handlers.get(0x0102)
+                cluster = (
+                    handler.cluster if handler and hasattr(handler, "cluster") else None
+                )
             if cluster:
                 _LOGGER.log(
                     logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,

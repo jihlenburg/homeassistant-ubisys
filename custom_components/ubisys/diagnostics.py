@@ -81,11 +81,20 @@ async def async_get_config_entry_diagnostics(
                 if device:
                     eps: dict[int, Any] = {}
                     for ep_id, ep in device.endpoints.items():
+                        # Handle both old and new API for cluster access
+                        if hasattr(ep, "in_clusters"):
+                            in_clusters = ep.in_clusters
+                            out_clusters = ep.out_clusters
+                        elif hasattr(ep, "zigpy_endpoint"):
+                            in_clusters = ep.zigpy_endpoint.in_clusters
+                            out_clusters = ep.zigpy_endpoint.out_clusters
+                        else:
+                            in_clusters = {}
+                            out_clusters = {}
+
                         eps[int(ep_id)] = {
-                            "in_clusters": [hex(cid) for cid in ep.in_clusters.keys()],
-                            "out_clusters": [
-                                hex(cid) for cid in ep.out_clusters.keys()
-                            ],
+                            "in_clusters": [hex(cid) for cid in in_clusters.keys()],
+                            "out_clusters": [hex(cid) for cid in out_clusters.keys()],
                         }
                     data["zha_endpoints"] = eps
             elif ieee:

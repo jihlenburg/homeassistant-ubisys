@@ -394,8 +394,29 @@ async def get_cluster(
             )
             return None
 
-        # Get cluster from endpoint
-        cluster = endpoint.in_clusters.get(cluster_id)
+        # Get cluster from endpoint - Handle both old and new API
+        # Old API: endpoint.in_clusters
+        # New API: endpoint.zigpy_endpoint.in_clusters or endpoint.all_cluster_handlers
+        cluster = None
+        if hasattr(endpoint, "in_clusters"):
+            # Old API: direct in_clusters access
+            cluster = endpoint.in_clusters.get(cluster_id)
+        elif hasattr(endpoint, "zigpy_endpoint"):
+            # New API: ZHA wraps zigpy endpoint
+            cluster = endpoint.zigpy_endpoint.in_clusters.get(cluster_id)
+        elif hasattr(endpoint, "all_cluster_handlers"):
+            # Alternative new API: cluster handlers
+            handler = endpoint.all_cluster_handlers.get(cluster_id)
+            cluster = (
+                handler.cluster if handler and hasattr(handler, "cluster") else None
+            )
+        else:
+            _LOGGER.error(
+                "Endpoint has no known cluster access pattern. Type: %s, Attributes: %s",
+                type(endpoint).__name__,
+                [attr for attr in dir(endpoint) if not attr.startswith("_")][:30],
+            )
+            return None
         if not cluster:
             _LOGGER.error(
                 "%s cluster (0x%04X) not found on endpoint %d for device: %s",
