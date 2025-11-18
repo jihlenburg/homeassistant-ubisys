@@ -96,7 +96,7 @@ OPERATIONAL_STATUS_ATTR = 0x000A  # Bitmap showing motor running/stopped state
 # OperationalStatus bitmap flags (ZCL WindowCovering cluster specification)
 MOTOR_LIFT_RUNNING = 0x01  # Bit 0: Lift motor currently active
 MOTOR_TILT_RUNNING = 0x02  # Bit 1: Tilt motor currently active
-MOTOR_STOPPED = 0x00       # All bits clear: Motor has stopped (limit reached)
+MOTOR_STOPPED = 0x00  # All bits clear: Motor has stopped (limit reached)
 
 # Polling interval for motor status checks during calibration
 # Fast enough to detect stop promptly, slow enough to avoid excessive polling
@@ -1054,7 +1054,8 @@ async def _calibration_phase_4_verify(
         result="verified",
     )
 
-    return final_position
+    # Return 100 for interface compatibility (verification phase doesn't track position)
+    return 100
 
 
 async def _calibration_phase_5_finalize(
@@ -1333,11 +1334,10 @@ async def _prepare_calibration_limits(cluster: Cluster) -> None:
             cluster,
             {
                 # Physical limits (standard values from official docs)
-                UBISYS_ATTR_INSTALLED_OPEN_LIMIT_LIFT: 0x0000,     # 0 cm
-                UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_LIFT: 0x00F0,   # 240 cm
-                UBISYS_ATTR_INSTALLED_OPEN_LIMIT_TILT: 0x0000,     # 0°
-                UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_TILT: 0x0384,   # 90° (900 tenths)
-
+                UBISYS_ATTR_INSTALLED_OPEN_LIMIT_LIFT: 0x0000,  # 0 cm
+                UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_LIFT: 0x00F0,  # 240 cm
+                UBISYS_ATTR_INSTALLED_OPEN_LIMIT_TILT: 0x0000,  # 0°
+                UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_TILT: 0x0384,  # 90° (900 tenths)
                 # Mark as uncalibrated
                 UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS: 0xFFFF,
                 UBISYS_ATTR_TOTAL_STEPS: 0xFFFF,
@@ -1348,7 +1348,9 @@ async def _prepare_calibration_limits(cluster: Cluster) -> None:
         )
         _LOGGER.debug("✓ Wrote initial calibration limits")
     except Exception as err:
-        raise HomeAssistantError(f"Failed to write initial calibration limits: {err}") from err
+        raise HomeAssistantError(
+            f"Failed to write initial calibration limits: {err}"
+        ) from err
 
 
 async def _enter_calibration_mode(cluster: Cluster) -> None:
@@ -1380,7 +1382,7 @@ async def _enter_calibration_mode(cluster: Cluster) -> None:
     try:
         await async_write_and_verify_attrs(
             cluster,
-            {MODE_ATTR: MODE_CALIBRATION}
+            {MODE_ATTR: MODE_CALIBRATION},
             # NO manufacturer parameter - MODE_ATTR is a STANDARD ZCL attribute!
         )
         _LOGGER.debug("✓ Entered calibration mode (Mode=0x02) - verified")
@@ -1422,7 +1424,7 @@ async def _exit_calibration_mode(cluster: Cluster) -> None:
     try:
         await async_write_and_verify_attrs(
             cluster,
-            {MODE_ATTR: MODE_NORMAL}
+            {MODE_ATTR: MODE_NORMAL},
             # NO manufacturer parameter - MODE_ATTR is a STANDARD ZCL attribute!
         )
         _LOGGER.debug("✓ Exited calibration mode (Mode=0x00) - verified")

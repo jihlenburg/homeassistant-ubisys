@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.7.9] - 2025-11-18
+
+### Fixed
+- **Fixed undefined variable in Phase 4 verification**
+  - Phase 4 was trying to return `final_position` which didn't exist
+  - Changed to return 100 (interface compatibility - verification doesn't track position)
+  - Calibration now completes all 5 phases successfully!
+
+### Success
+With v1.3.7.9, the complete calibration flow is now working:
+- ✅ Phase 1: Preparation (WindowCoveringType, limits, Mode)
+- ✅ Phase 2: Find top limit (motor auto-stops at ~37s)
+- ✅ Phase 3: Find bottom limit (motor auto-stops at ~35s)
+- ✅ Phase 4: Verification return to top (motor auto-stops at ~37s)
+- ✅ Phase 5: Finalization (tilt steps, exit calibration mode)
+
+All three motor stop detections working correctly thanks to v1.3.7.8 falsy zero fix!
+
+
 ## [1.3.7.8] - 2025-11-18
 
 ### Fixed

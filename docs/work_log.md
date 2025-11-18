@@ -4,6 +4,41 @@ This log tracks meaningful development work on the Ubisys integration.
 
 ## 2025-11-18
 
+### SUCCESS: Calibration Working End-to-End! (v1.3.7.9)
+
+**Context**: After fixing the falsy zero bug in v1.3.7.8, tested calibration and it progressed through all phases but failed at the very end.
+
+**Error Observed**:
+```
+NameError: name 'final_position' is not defined
+  at _calibration_phase_4_verify:1057
+```
+
+**Root Cause**: Phase 4 verification function had `return final_position` but this variable was never defined. This was vestigial code from the old stall detection implementation which returned positions.
+
+**The Fix**: Changed Phase 4 to return 100 (interface compatibility - representing fully open position). The verification phase doesn't actually need to track position since the device auto-stops.
+
+**BREAKTHROUGH - Calibration Now Works!**
+All 5 phases complete successfully:
+- ✅ Phase 1: Preparation (3 steps: WindowCoveringType → limits → Mode)
+- ✅ Phase 2: Find top limit (motor auto-stops after ~37s)
+- ✅ Phase 3: Find bottom limit (motor auto-stops after ~35s)
+- ✅ Phase 4: Verification return to top (motor auto-stops after ~37s)
+- ✅ Phase 5: Finalization (tilt steps, exit calibration mode)
+
+Motor stop detection working perfectly - the v1.3.7.8 falsy zero fix was the key!
+
+**Files Modified**:
+- `custom_components/ubisys/j1_calibration.py`: Fixed Phase 4 return value (line 1057-1058)
+- `custom_components/ubisys/manifest.json`: v1.3.7.9
+- `CHANGELOG.md`: Added v1.3.7.9 success entry
+
+**Testing**: All 11 J1 calibration tests passing.
+
+**Impact**: After 3 emergency releases (v1.3.7.7 mode namespace, v1.3.7.8 falsy zero, v1.3.7.9 undefined variable), J1 calibration is finally working end-to-end on HA 2025.11+!
+
+---
+
 ### CRITICAL: "Falsy Zero" Bug in OperationalStatus Detection (v1.3.7.8)
 
 **Context**: Immediately after releasing v1.3.7.7 (Mode attribute namespace fix), tested calibration on real hardware and encountered a new failure.
