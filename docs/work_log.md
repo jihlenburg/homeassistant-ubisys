@@ -4,6 +4,149 @@ This log tracks meaningful development work on the Ubisys integration.
 
 ## 2025-11-18
 
+### MAJOR: Calibration Rewrite - Implemented Official Ubisys Procedure (v1.3.7.6)
+
+**Context**: After 5 emergency hotfixes (v1.3.7.1-7.5) fixing HA 2025.11+ API compatibility, calibration still failed with total_steps=0xFFFF. Deep analysis revealed the calibration logic itself was fundamentally incompatible with how the Ubisys J1 actually works.
+
+**Root Cause Discovery**:
+
+User tested each fix immediately and reported:
+- v1.3.7.1: Fixed gateway device access, but still failed
+- v1.3.7.2: Fixed endpoint access, but still failed
+- v1.3.7.3: Fixed attribute read tuple format, but still failed
+- v1.3.7.4: Fixed cluster command API, motor moved but failed
+- v1.3.7.5: Fixed attribute read parameters, motor moved but `total_steps=65535 (0xFFFF)`
+
+Final logs showed suspicious pattern:
+```
+Motor moved up to position -155 (stalled after 3.0s)
+Motor moved down to position -155 (same position - stalled after 3.0s)
+total_steps returned 65535 (0xFFFF = uninitialized)
+```
+
+**Both positions identical** → position not updating during calibration!
+
+**Investigation**: Consulted "Ubisys J1 - Technical Reference.md" official documentation:
+
+```
+Step 5: Send "move up" → Device automatically finds upper bound
+Step 6: After motor stops, send "move down" → Device auto-finds lower bound
+Step 7: After motor stops, send "move up" → Device returns to top
+```
+
+Key insight: "After motor stops" - device **auto-stops at limits**, we don't send stop commands!
+
+**The Fundamental Problem**:
+
+Our implementation assumed position-based stall detection (from deCONZ/general Zigbee blind calibration):
+1. Send movement command
+2. Monitor `current_position` attribute
+3. If position unchanged for 3s → motor has stalled
+4. Send `stop` command
+
+But during Ubisys J1 calibration mode (mode=0x02):
+- `current_position` attribute **does NOT update** (meaningless until calibration completes)
+- Device **automatically detects limits** via current spike detection
+- Device **automatically stops motor** when limit reached
+- Device only calculates `total_steps` **after completing full movement**
+- Sending external "stop" command **interrupts** this process before limit reached
+
+Result: Our code falsely detected "stall" after 3s → stopped motor mid-movement → device never learned limits → total_steps stayed 0xFFFF.
+
+**The Solution - Monitor OperationalStatus, Not Position**:
+
+The official documentation mentions: "Use `OperationalStatus` attribute (0x000A) - reportable - to visualize motor running up/down"
+
+OperationalStatus (standard ZCL attribute):
+- Bitmap showing motor running/stopped state
+- Bit 0 (0x01): Lift motor currently running
+- Bit 1 (0x02): Tilt motor currently running
+- 0x00: All bits clear → Motor has stopped
+
+**Unlike `current_position`, OperationalStatus DOES update during calibration!**
+
+**Implementation**:
+
+1. **Added OperationalStatus monitoring constants** (j1_calibration.py:68-95)
+   - `OPERATIONAL_STATUS_ATTR = 0x000A`
+   - `MOTOR_STOPPED = 0x00`, `MOTOR_LIFT_RUNNING = 0x01`, etc.
+   - Comprehensive comments explaining official procedure
+
+2. **Created `_wait_for_motor_stop()` function** (230 lines with extensive docs)
+   - Monitors OperationalStatus (0x000A) every 0.5s
+   - Returns when status = 0x00 (motor stopped at limit)
+   - HA 2025.11+ tuple response handling
+   - Retry logic for transient read failures
+   - Generous 120s timeout for large blinds
+   - Detailed error messages explaining failure causes
+
+3. **Updated calibration phases to use auto-stop**:
+   - **Phase 2** (find top): Send `up_open` → wait for OperationalStatus=0x00 → NO stop command
+   - **Phase 3** (find bottom): Send `down_close` → wait for OperationalStatus=0x00 → NO stop command
+   - **Phase 4** (verify): Send `up_open` → wait for OperationalStatus=0x00 → NO stop command
+   - Updated all docstrings explaining auto-stop behavior and referencing official docs
+
+4. **Kept `_wait_for_stall()` unchanged** for safety
+   - Non-breaking approach
+   - Serves as fallback if needed
+   - May be useful for non-calibration scenarios
+
+5. **Fixed test mocks** (conftest.py:82-123)
+   - Mock now tracks written values
+   - Returns written values when read for verification
+   - Allows `async_write_and_verify_attrs()` to work correctly
+
+**Architectural Change**:
+
+```
+BEFORE (Broken):
+Phase 2: send up_open → monitor position → detect "stall" after 3s → send stop
+         Position: -155 (frozen, not updating)
+         Result: Motor stopped mid-movement, never reached top
+
+Phase 3: send down_close → monitor position → detect "stall" after 3s → send stop
+         Position: -155 (same as before!)
+         Result: Motor stopped mid-movement, never reached bottom
+         total_steps: 0xFFFF (device never completed calibration)
+
+AFTER (Correct):
+Phase 2: send up_open → monitor OperationalStatus → wait for 0x00 → device auto-stopped
+         OperationalStatus: 0x01 (running) ... time passes ... 0x00 (stopped at top)
+         Result: Motor reached top limit, device recorded position
+
+Phase 3: send down_close → monitor OperationalStatus → wait for 0x00 → device auto-stopped
+         OperationalStatus: 0x01 (running) ... time passes ... 0x00 (stopped at bottom)
+         Result: Motor reached bottom, device calculated total_steps
+         total_steps: Actual value (e.g., 5000 steps)
+```
+
+**Testing**: All 81 tests passing. Coverage: 52% (unchanged).
+
+**Impact**: J1 calibration should **finally work** on HA 2025.11+. This matches the official Ubisys procedure and addresses the fundamental architectural flaw that caused all previous attempts to fail.
+
+**Files Modified**:
+- `custom_components/ubisys/j1_calibration.py` (+280 lines net)
+  - Lines 68-95: Added OperationalStatus constants
+  - Lines 1376-1601: Added `_wait_for_motor_stop()` function
+  - Lines 710-813: Rewrote Phase 2 (auto-stop)
+  - Lines 816-970: Rewrote Phase 3 (auto-stop)
+  - Lines 955-1063: Rewrote Phase 4 (auto-stop)
+  - Kept `_wait_for_stall()` unchanged (safety)
+- `tests/conftest.py` (lines 82-123): Smart mock for write verification
+- `custom_components/ubisys/manifest.json`: v1.3.7.6
+- `CHANGELOG.md`: Added v1.3.7.5 and v1.3.7.6 entries
+- `docs/work_log.md`: This comprehensive entry
+
+**Lessons Learned**:
+
+1. **Consult official documentation first** - Could have saved 5 hotfix iterations
+2. **Test entire user flow**, not just API calls - Position monitoring "worked" (no errors) but was logically wrong
+3. **Question assumptions** - deCONZ-style position monitoring doesn't apply to all devices
+4. **Device-specific behavior** - Ubisys calibration mode has special firmware logic that differs from generic Zigbee blinds
+5. **Monitor the right attribute** - OperationalStatus updates during calibration, position doesn't
+
+---
+
 ### Bugfix: Calibration Buttons on Non-Motor Devices
 
 **Context**: User reported seeing "Calibrate" and "Health Check" buttons on S1 (switch) device, which doesn't have a motor or any calibration needs.

@@ -88,9 +88,29 @@ def mock_window_covering_cluster():
     cluster.endpoint.endpoint_id = 2
     cluster.endpoint.device = MagicMock()
 
-    # Mock async methods with sensible defaults
-    cluster.write_attributes = AsyncMock(return_value=[{}])
-    cluster.read_attributes = AsyncMock(return_value=[{0x0008: 50}])  # position=50
+    # Track written attributes for verification
+    written_attrs = {}
+
+    async def mock_write(attrs, manufacturer=None):
+        """Mock write that tracks written values for read verification."""
+        written_attrs.update(attrs)
+        return [{}]
+
+    async def mock_read(attr_ids, manufacturer=None):
+        """Mock read that returns previously written values."""
+        result = {}
+        for attr_id in attr_ids:
+            # Return written value if available, else default values
+            if attr_id in written_attrs:
+                result[attr_id] = written_attrs[attr_id]
+            elif attr_id == 0x0008:  # current_position
+                result[attr_id] = 50
+            # For other attributes, return None (will be handled by caller)
+        return [result]
+
+    # Mock async methods with smart defaults
+    cluster.write_attributes = AsyncMock(side_effect=mock_write)
+    cluster.read_attributes = AsyncMock(side_effect=mock_read)
     cluster.command = AsyncMock()
 
     # Mock commands

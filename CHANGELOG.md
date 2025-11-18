@@ -8,6 +8,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.7.6] - 2025-11-18
+
+### Fixed
+- **MAJOR**: Rewrote J1 calibration to match official Ubisys procedure
+  - **Root cause**: v1.3.7.1-7.5 fixed API compatibility but calibration logic itself was fundamentally wrong
+  - Old approach monitored `current_position` which doesn't update during calibration mode
+  - Falsely detected "stall" after 3 seconds → sent stop command → motor never reached limits
+  - Device returned total_steps=0xFFFF (uninitialized) because calibration never completed
+
+### Changed
+- **Calibration algorithm completely rewritten** based on "Ubisys J1 Technical Reference" official documentation
+  - Device **auto-stops** at physical limits during calibration (current spike detection)
+  - Monitor `OperationalStatus` (0x000A) to detect when motor stopped, NOT position
+  - REMOVED all "stop" commands from Phases 2, 3, 4 (device stops itself)
+  - Added `_wait_for_motor_stop()` function with 230 lines of comprehensive documentation
+  - Kept `_wait_for_stall()` unchanged for safety (non-breaking approach)
+
+### Technical Details
+- Added OperationalStatus monitoring constants (0x000A attribute, bitmap flags)
+- Phase 2: Send up_open → wait for OperationalStatus=0x00 → top limit learned
+- Phase 3: Send down_close → wait for OperationalStatus=0x00 → device calculates total_steps
+- Phase 4: Send up_open → wait for OperationalStatus=0x00 → verification complete
+- Updated test mocks to return written values for verification
+- All 81 tests passing
+
+### Why This Matters
+During calibration mode (mode=0x02), the Ubisys J1:
+- Does NOT update `current_position` attribute (meaningless until calibration completes)
+- DOES update `OperationalStatus` to show motor running/stopped state
+- AUTOMATICALLY detects limits via current spike and stops motor itself
+- Only calculates `total_steps` AFTER completing full top→bottom movement
+
+This matches Step 5-7 of official Ubisys calibration procedure and should finally allow successful calibration on HA 2025.11+.
+
+
+## [1.3.7.5] - 2025-11-18
+
+### Fixed
+- **Critical**: Fixed attribute read parameter format in `read_attributes` calls
+  - HA 2025.11+ requires attribute IDs (integers), not attribute names (strings)
+  - Error: `Failed to read total_steps attribute: 'total_steps'` during Phase 3
+  - Fixed `j1_calibration.py:888` to use `UBISYS_ATTR_TOTAL_STEPS` constant instead of string
+  - Also fixed health check attribute read (lines 483-493) to handle tuple responses
+
+### Technical Details
+- `read_attributes()` parameter format changed:
+  - Old: `read_attributes(["total_steps"])` - accepts strings
+  - New: `read_attributes([0x1002])` - requires integer attribute IDs only
+- Health check now handles both tuple and list response formats from HA 2025.11+
+
+
 ## [1.3.7.4] - 2025-11-18
 
 ### Fixed

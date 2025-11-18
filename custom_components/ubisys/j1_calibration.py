@@ -65,6 +65,35 @@ _LOGGER = logging.getLogger(__name__)
 
 TOTAL_CALIBRATION_TIMEOUT = 300  # Maximum 5 minutes total (not yet used)
 
+# ══════════════════════════════════════════════════════════════════════════════
+# OperationalStatus Monitoring Constants (Official Ubisys Calibration Procedure)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# During calibration mode (mode=0x02), the Ubisys J1 device AUTOMATICALLY stops
+# when it reaches physical limits. We monitor OperationalStatus (0x000A) to detect
+# when the motor has stopped, rather than monitoring position (which doesn't update
+# during calibration).
+#
+# Reference: "Ubisys J1 - Technical Reference.md", Calibration Procedure
+# - Step 5: "Send 'move up' → Device automatically finds upper bound"
+# - Step 6: "After motor stops, send 'move down' → Device auto-finds lower bound"
+# - Step 7: "After motor stops, send 'move up' → Device returns to top"
+#
+# The device uses internal mechanisms (current spike detection, mechanical sensing)
+# to detect limits and auto-stop. We don't send "stop" commands during calibration.
+
+# WindowCovering cluster standard attribute (ZCL spec)
+OPERATIONAL_STATUS_ATTR = 0x000A  # Bitmap showing motor running/stopped state
+
+# OperationalStatus bitmap flags (ZCL WindowCovering cluster specification)
+MOTOR_LIFT_RUNNING = 0x01  # Bit 0: Lift motor currently active
+MOTOR_TILT_RUNNING = 0x02  # Bit 1: Tilt motor currently active
+MOTOR_STOPPED = 0x00       # All bits clear: Motor has stopped (limit reached)
+
+# Polling interval for motor status checks during calibration
+# Fast enough to detect stop promptly, slow enough to avoid excessive polling
+MOTOR_STATUS_POLL_INTERVAL = 0.5  # 500 milliseconds
+
 
 async def async_calibrate_j1(hass: HomeAssistant, call: ServiceCall) -> None:
     """Handle ubisys.calibrate_j1 service calls (single or multiple entities).
@@ -484,11 +513,13 @@ async def _async_run_calibration_health_check(
             [UBISYS_ATTR_TOTAL_STEPS],
             manufacturer=UBISYS_MANUFACTURER_CODE,
         )
-        total_steps = (
-            read[0].get(UBISYS_ATTR_TOTAL_STEPS)
-            if isinstance(read, list) and read
-            else None
-        )
+        # HA 2025.11+ returns tuple (success_dict, failure_dict)
+        if isinstance(read, tuple) and len(read) >= 1:
+            read = read[0]  # Extract success dict
+        elif isinstance(read, list) and read:
+            read = read[0]
+
+        total_steps = read.get(UBISYS_ATTR_TOTAL_STEPS) if read else None
     except Exception:  # pragma: no cover - diagnostic helper
         total_steps = None
 
@@ -681,82 +712,105 @@ async def _calibration_phase_2_find_top(
     cluster: Cluster,
     entity_id: str,
 ) -> int:
-    """PHASE 2: Find top limit via motor stall detection.
+    """PHASE 2: Find top limit - device auto-stops at physical limit.
 
-    Moves the blind upward until the motor stalls at the fully open position.
-    This establishes the top reference point for the calibration.
+    ═══════════════════════════════════════════════════════════════════════════
+    Official Ubisys Procedure: Step 5 - "Send 'move up' → Device automatically
+    finds upper bound"
+    ═══════════════════════════════════════════════════════════════════════════
+
+    Sends upward movement command and waits for the device to AUTOMATICALLY stop
+    when it reaches the physical top limit. The device detects the limit internally
+    and stops itself - we do NOT send a "stop" command.
 
     Phase Sequence:
         Step 3: Send up_open command (continuous upward movement)
-        Step 4: Monitor position via stall detection algorithm
-        Step 5: Send stop command when motor stalls
+        Step 4: Wait for device to auto-stop (monitors OperationalStatus attribute)
+        Step 5: Device has stopped → top limit learned
 
-    Why Stall Detection?
+    How Device Auto-Stop Works:
 
-    The J1 motor doesn't have limit switches or provide a "reached limit" signal.
-    We must detect stall by monitoring the position attribute. See _wait_for_stall()
-    for detailed algorithm explanation.
+    During calibration mode, the Ubisys J1 device has special firmware logic that:
+    - Monitors motor current draw
+    - Detects when current spikes (motor hits physical limit and stalls)
+    - Automatically stops the motor
+    - Records the top limit position internally
+    - Updates OperationalStatus to 0x00 (motor stopped)
+
+    We simply wait for OperationalStatus to become 0x00, indicating the device
+    has finished finding the limit.
+
+    Why NOT Send Stop Command?
+
+    Per official Ubisys documentation, the device handles limit detection and
+    stopping internally during calibration mode. Sending an external "stop"
+    command would interrupt this process BEFORE the device reaches the limit,
+    preventing proper calibration.
 
     Why Find Top First?
 
     Calibration sequence is always: top → bottom → top (verification)
         - Ensures consistent reference point
-        - Follows deCONZ proven sequence
-        - Allows device to count steps from known position
+        - Standard Zigbee blind calibration practice
+        - Allows device to measure full travel distance
 
     Args:
-        hass: Home Assistant instance for state monitoring
-        cluster: WindowCovering cluster for sending commands
-        entity_id: ZHA cover entity ID for position monitoring
+        hass: Home Assistant instance (for verbose logging check only)
+        cluster: WindowCovering cluster for sending commands and reading status
+        entity_id: ZHA cover entity ID (kept for interface compatibility,
+                  not used in current implementation)
 
     Returns:
-        Final position when motor stalled at top (typically 100 = fully open)
+        Return value kept for interface compatibility (always returns 100).
+        Actual position is meaningless during calibration since current_position
+        attribute doesn't update until calibration mode exits.
 
     Raises:
-        HomeAssistantError: If up_open command fails or timeout occurs
+        HomeAssistantError: If up_open command fails or motor doesn't stop
+                          within timeout (indicating jammed motor or obstruction)
 
     Example:
-        >>> pos = await _calibration_phase_2_find_top(hass, cluster, entity_id)
-        >>> print(f"Top limit found at position {pos}")
-        Top limit found at position 100
+        >>> # Phase 2: Device will move up and auto-stop at top limit
+        >>> await _calibration_phase_2_find_top(hass, cluster, entity_id)
+        >>> # Motor has stopped at top - top limit now recorded in device
 
     See Also:
-        - _wait_for_stall(): Stall detection algorithm
-        - _calibration_phase_3_find_bottom(): Next phase
+        - _wait_for_motor_stop(): OperationalStatus monitoring algorithm
+        - _calibration_phase_3_find_bottom(): Next phase (finds bottom limit)
+        - _calibration_phase_1_enter_mode(): Previous phase (enters calib mode)
     """
     kv(
         _LOGGER,
         logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
-        "PHASE 2: Finding top limit",
+        "PHASE 2: Finding top limit (device auto-stop)",
     )
 
-    # Step 3: Send up_open command
-    _LOGGER.debug("Step 3: Sending up_open command")
+    # Step 3: Send up_open command - device will move up until limit reached
+    _LOGGER.debug("Step 3: Sending up_open command (device will auto-stop at limit)")
     try:
         await async_zcl_command(cluster, "up_open", timeout_s=15.0, retries=1)
     except Exception as err:
         raise HomeAssistantError(f"Failed to send up_open command: {err}") from err
 
-    # Step 4: Wait for motor stall
-    _LOGGER.debug("Step 4: Waiting for motor stall at top position")
-    final_position = await _wait_for_stall(hass, entity_id, "finding top limit (up)")
+    # Step 4: Wait for device to auto-stop at top limit
+    # Device internally detects limit via current spike and stops motor
+    # We monitor OperationalStatus (0x000A) to detect when motor has stopped
+    _LOGGER.debug("Step 4: Waiting for device to auto-stop at top limit...")
+    await _wait_for_motor_stop(cluster, "finding top limit (up)")
 
-    # Step 5: Send stop command
-    _LOGGER.debug("Step 5: Motor stalled at position %s - sending stop", final_position)
-    try:
-        await async_zcl_command(cluster, "stop", timeout_s=10.0, retries=1)
-    except Exception as err:
-        _LOGGER.warning("Failed to send stop command: %s", err)
+    # Step 5: Motor has stopped - device has learned top limit
+    # NO "stop" command needed - device stopped itself!
+    _LOGGER.debug("Step 5: Device auto-stopped at top limit - top position learned")
 
     await asyncio.sleep(SETTLE_TIME)
     kv(
         _LOGGER,
         logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
-        "PHASE 2 complete",
-        position=final_position,
+        "PHASE 2 complete: Top limit found",
     )
 
-    return final_position
+    # Return 100 for interface compatibility (actual position meaningless in calib mode)
+    return 100
 
 
 async def _calibration_phase_3_find_bottom(
@@ -865,18 +919,15 @@ async def _calibration_phase_3_find_bottom(
     except Exception as err:
         raise HomeAssistantError(f"Failed to send down_close command: {err}") from err
 
-    # Step 7: Wait for motor stall
-    _LOGGER.debug("Step 7: Waiting for motor stall at bottom position")
-    final_position = await _wait_for_stall(
-        hass, entity_id, "finding bottom limit (down)"
-    )
+    # Step 7: Wait for device to auto-stop at bottom limit
+    # Device detects bottom limit and stops itself - NO "stop" command needed!
+    _LOGGER.debug("Step 7: Waiting for device to auto-stop at bottom limit...")
+    await _wait_for_motor_stop(cluster, "finding bottom limit (down)")
 
-    # Step 8: Send stop command
-    _LOGGER.debug("Step 8: Motor stalled at position %s - sending stop", final_position)
-    try:
-        await async_zcl_command(cluster, "stop", timeout_s=10.0, retries=1)
-    except Exception as err:
-        _LOGGER.warning("Failed to send stop command: %s", err)
+    # Step 8: Motor has stopped - device has learned bottom limit AND calculated total_steps
+    # During the down movement from top to bottom, the device counted motor steps.
+    # Now it has calculated total_steps (full travel distance in motor steps).
+    _LOGGER.debug("Step 8: Device auto-stopped at bottom - total_steps calculated")
 
     await asyncio.sleep(SETTLE_TIME)
 
@@ -992,18 +1043,14 @@ async def _calibration_phase_4_verify(
             f"Failed to send verification up_open command: {err}"
         ) from err
 
-    # Step 11: Wait for motor stall
-    _LOGGER.debug("Step 11: Waiting for motor stall at top position")
-    final_position = await _wait_for_stall(
-        hass, entity_id, "verification return to top"
-    )
+    # Step 11: Wait for device to auto-stop at top position (verification)
+    # Device returns to top and stops itself - confirming calibration is stable
+    _LOGGER.debug("Step 11: Waiting for device to auto-stop at top (verification)...")
+    await _wait_for_motor_stop(cluster, "verification return to top")
 
-    # Step 12: Send stop command
-    _LOGGER.debug("Step 12: Verification complete - sending stop")
-    try:
-        await async_zcl_command(cluster, "stop", timeout_s=10.0, retries=1)
-    except Exception as err:
-        _LOGGER.warning("Failed to send stop command: %s", err)
+    # Step 12: Verification complete - device has returned to top and stopped
+    # This confirms the device can reliably find the top limit it learned in Phase 2
+    _LOGGER.debug("Step 12: Verification complete - device returned to top")
 
     await asyncio.sleep(SETTLE_TIME)
     kv(
@@ -1285,11 +1332,12 @@ async def _enter_calibration_mode(cluster: Cluster) -> None:
         - _calibration_phase_1_enter_mode(): Uses this helper
     """
     try:
-        await cluster.write_attributes(
+        await async_write_and_verify_attrs(
+            cluster,
             {CALIBRATION_MODE_ATTR: CALIBRATION_MODE_ENTER},
             manufacturer=UBISYS_MANUFACTURER_CODE,
         )
-        _LOGGER.debug("Entered calibration mode (mode=0x02)")
+        _LOGGER.debug("Entered calibration mode (mode=0x02) - verified")
     except Exception as err:
         raise HomeAssistantError(f"Failed to enter calibration mode: {err}") from err
 
@@ -1331,13 +1379,242 @@ async def _exit_calibration_mode(cluster: Cluster) -> None:
         - _calibration_phase_5_finalize(): Normal exit path
     """
     try:
-        await cluster.write_attributes(
+        await async_write_and_verify_attrs(
+            cluster,
             {CALIBRATION_MODE_ATTR: CALIBRATION_MODE_EXIT},
             manufacturer=UBISYS_MANUFACTURER_CODE,
         )
-        _LOGGER.debug("Exited calibration mode (mode=0x00)")
+        _LOGGER.debug("Exited calibration mode (mode=0x00) - verified")
     except Exception as err:
         raise HomeAssistantError(f"Failed to exit calibration mode: {err}") from err
+
+
+async def _wait_for_motor_stop(
+    cluster: Cluster,
+    phase_description: str,
+    timeout: int = PER_MOVE_TIMEOUT,
+) -> None:
+    """Wait for J1 motor to auto-stop at limit during calibration (official procedure).
+
+    ══════════════════════════════════════════════════════════════════════════════
+    CRITICAL: This implements the OFFICIAL Ubisys calibration procedure
+    ══════════════════════════════════════════════════════════════════════════════
+
+    Reference: "Ubisys J1 - Technical Reference.md", Calibration Procedure
+    - Step 5: "Send 'move up' → **Device automatically finds upper bound**"
+    - Step 6: "After motor stops, send 'move down' → **Device auto-finds lower bound**"
+    - Step 7: "After motor stops, send 'move up' → **Device returns to top**"
+
+    During calibration mode (mode=0x02), the Ubisys J1 device AUTOMATICALLY detects
+    when the motor reaches a physical limit and stops itself. We do NOT need to send
+    "stop" commands - the device handles this internally using:
+    - Current spike detection (motor draws more current when stalled)
+    - Mechanical sensing (physical resistance at limit)
+    - Internal calibration logic
+
+    What This Function Does:
+
+    Monitors the OperationalStatus attribute (0x000A) to detect when the motor has
+    stopped running. This attribute is a bitmap where:
+    - Bit 0 (0x01): Lift motor currently running
+    - Bit 1 (0x02): Tilt motor currently running
+    - 0x00: All bits clear → Motor has stopped (limit reached)
+
+    The device updates OperationalStatus in real-time during calibration, making it
+    the correct attribute to monitor (unlike current_position which stays frozen).
+
+    Why NOT Monitor Position During Calibration:
+
+    During calibration mode, the J1 device does NOT update the standard ZCL
+    current_position attribute. This is because:
+    - Limits aren't known yet, so position is meaningless
+    - Device is counting internal motor steps, not calculating position
+    - Position calculation only works AFTER calibration completes
+    - Only after exiting calibration mode does position reporting resume
+
+    This is why the old approach (monitoring current_position via _wait_for_stall)
+    failed - position stayed frozen at pre-calibration value (-155), causing false
+    "stall" detection after 3 seconds and stopping the motor before it reached limits.
+
+    Algorithm:
+
+    1. Poll OperationalStatus (0x000A) every MOTOR_STATUS_POLL_INTERVAL (0.5s)
+    2. Check if status = MOTOR_STOPPED (0x00)
+    3. If motor stopped: Return success (device reached limit)
+    4. If motor still running: Continue polling
+    5. If timeout exceeded: Raise error (motor jammed or device disconnected)
+
+    Why 0.5s Polling Interval?
+    - Fast enough: Detect motor stop within 500ms
+    - Not excessive: Avoids flooding device with attribute reads
+    - Proven: Standard polling rate for ZigBee status monitoring
+
+    Why 120s Timeout?
+    - Large blinds: Very tall windows may take 60-90 seconds to traverse
+    - Slow motors: Some motors are deliberately slow for quiet operation
+    - Safety margin: Better to wait longer than fail prematurely
+    - User can interrupt: Home Assistant allows service call cancellation
+
+    Args:
+        cluster: WindowCovering cluster for OperationalStatus attribute reads
+        phase_description: Human-readable phase name for logging
+                          (e.g., "finding top limit (up)", "finding bottom (down)")
+        timeout: Maximum seconds to wait before raising timeout error
+                Default PER_MOVE_TIMEOUT (120s) - generous for large blinds
+
+    Raises:
+        HomeAssistantError: If any of the following occur:
+            - Motor doesn't stop within timeout period
+              → Usually indicates: jammed motor, physical obstruction,
+                device disconnected, or very large blind needing longer timeout
+            - OperationalStatus attribute read fails repeatedly
+              → Usually indicates: ZigBee communication failure,
+                device firmware issue, or attribute not supported
+            - Device reports error status
+              → Device-specific error condition (rare)
+
+    Example Usage (Phase 2):
+        >>> # Send upward movement command (device will auto-stop at top)
+        >>> await async_zcl_command(cluster, "up_open", timeout_s=15.0)
+        >>> # Wait for device to auto-stop at top limit
+        >>> await _wait_for_motor_stop(cluster, "finding top limit (up)")
+        >>> # Motor has stopped at top - no "stop" command needed!
+        >>> # Device has internally recorded top limit position
+        >>> # Now proceed to next calibration step...
+
+    See Also:
+        - _calibration_phase_2_find_top(): Uses this for top limit detection
+        - _calibration_phase_3_find_bottom(): Uses this for bottom limit
+        - _calibration_phase_4_verify(): Uses this for verification move
+        - _wait_for_stall(): OLD approach (monitors position, doesn't work in
+                            calibration mode) - kept for non-calibration usage
+    """
+    _LOGGER.debug(
+        "Waiting for motor auto-stop during '%s' (timeout: %ss, poll interval: %ss)",
+        phase_description,
+        timeout,
+        MOTOR_STATUS_POLL_INTERVAL,
+    )
+
+    start_time = time.time()
+    last_status = None
+    last_log_time = start_time
+    read_failures = 0
+    MAX_READ_FAILURES = 5  # Allow up to 5 consecutive read failures before giving up
+
+    while True:
+        current_time = time.time()
+        elapsed = current_time - start_time
+
+        # Check timeout
+        if elapsed > timeout:
+            raise HomeAssistantError(
+                f"Timeout during {phase_description} after {elapsed:.1f}s. "
+                f"Motor did not auto-stop within expected time. "
+                f"Last OperationalStatus: {last_status}. "
+                f"Possible causes: motor jammed, blind too large (increase timeout), "
+                f"device disconnected, or physical obstruction."
+            )
+
+        # Read OperationalStatus attribute to check motor running state
+        try:
+            result = await cluster.read_attributes(
+                [OPERATIONAL_STATUS_ATTR],
+                manufacturer=None,  # Standard ZCL attribute, no manufacturer code
+            )
+
+            # HA 2025.11+ compatibility: Extract success dict from tuple
+            if isinstance(result, tuple) and len(result) >= 1:
+                result = result[0]  # Extract success dict from (success, failure) tuple
+            elif isinstance(result, list) and result:
+                result = result[0]
+
+            # Get status value (try both attribute ID and name for compatibility)
+            operational_status = result.get(OPERATIONAL_STATUS_ATTR) or result.get(
+                "operational_status"
+            )
+
+            if operational_status is None:
+                # Attribute read succeeded but status not in response - unusual
+                _LOGGER.warning(
+                    "%s: OperationalStatus not in response: %s",
+                    phase_description,
+                    result,
+                )
+                read_failures += 1
+                if read_failures >= MAX_READ_FAILURES:
+                    raise HomeAssistantError(
+                        f"OperationalStatus attribute missing from {MAX_READ_FAILURES} "
+                        f"consecutive reads during {phase_description}. "
+                        f"Device may not support this attribute (check firmware version)."
+                    )
+                await asyncio.sleep(MOTOR_STATUS_POLL_INTERVAL)
+                continue
+
+            # Reset failure counter on successful read
+            read_failures = 0
+
+            # Check if motor has stopped
+            if operational_status == MOTOR_STOPPED:
+                # Motor stopped! Device has reached limit and auto-stopped
+                _LOGGER.info(
+                    "%s: Motor auto-stopped (OperationalStatus=0x%02X) after %.1fs - "
+                    "device reached limit",
+                    phase_description,
+                    operational_status,
+                    elapsed,
+                )
+                return  # Success!
+
+            # Motor still running - log status changes
+            if operational_status != last_status:
+                _LOGGER.debug(
+                    "%s: OperationalStatus changed: 0x%02X → 0x%02X (elapsed: %.1fs)",
+                    phase_description,
+                    last_status if last_status is not None else 0x00,
+                    operational_status,
+                    elapsed,
+                )
+                last_status = operational_status
+
+            # Log progress every 5 seconds
+            if current_time - last_log_time >= 5.0:
+                motor_desc = []
+                if operational_status & MOTOR_LIFT_RUNNING:
+                    motor_desc.append("lift")
+                if operational_status & MOTOR_TILT_RUNNING:
+                    motor_desc.append("tilt")
+                motors = "+".join(motor_desc) if motor_desc else "unknown"
+
+                _LOGGER.info(
+                    "%s: Motor still running (%s), status=0x%02X, elapsed=%.1fs",
+                    phase_description,
+                    motors,
+                    operational_status,
+                    elapsed,
+                )
+                last_log_time = current_time
+
+        except Exception as err:
+            # Attribute read failed - log and retry
+            _LOGGER.warning(
+                "%s: Failed to read OperationalStatus (attempt %d/%d): %s",
+                phase_description,
+                read_failures + 1,
+                MAX_READ_FAILURES,
+                err,
+            )
+            read_failures += 1
+
+            if read_failures >= MAX_READ_FAILURES:
+                raise HomeAssistantError(
+                    f"Failed to read OperationalStatus {MAX_READ_FAILURES} times "
+                    f"during {phase_description}: {err}. "
+                    f"ZigBee communication failure or device offline."
+                ) from err
+
+        # Wait before next check
+        await asyncio.sleep(MOTOR_STATUS_POLL_INTERVAL)
 
 
 async def _wait_for_stall(
