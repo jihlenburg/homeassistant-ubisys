@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.7.3] - 2025-11-18
+
+### Fixed
+- **Critical**: Fixed `read_attributes` response handling in `write_and_verify_attribute`
+  - HA 2025.11+ returns tuple `(success_dict, failure_dict)` instead of dict
+  - Normalization code only handled list, not tuple
+  - Error: `'tuple' object has no attribute 'get'` during calibration attribute writes
+  - Fixed `helpers.py:806-811` to extract success dict from tuple before accessing
+  - J1 calibration attribute writes now work correctly
+
+### Technical Details
+- `read_attributes()` return format changed in HA 2025.11+:
+  - Old: returns dict directly
+  - New: returns tuple `({attr_id: value}, {attr_id: error})`
+- Added tuple handling before list handling in response normalization
+- Affects all device types (J1, D1, S1) that use `write_and_verify_attribute`
+
 ## [1.3.7.2] - 2025-11-18
 
 ### Fixed

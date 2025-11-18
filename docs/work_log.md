@@ -235,3 +235,59 @@ Three files updated with endpoint compatibility wrappers:
 - `custom_components/ubisys/j1_calibration.py` (lines 1615-1650, 1657-1667)
 - `custom_components/ubisys/helpers.py` (lines 397-417)
 - `custom_components/ubisys/diagnostics.py` (lines 83-98)
+
+---
+
+### Critical Hotfix: read_attributes Response Format (v1.3.7.3)
+
+**Context**: User tested v1.3.7.2 immediately after release and calibration STILL failed with: `'tuple' object has no attribute 'get'`
+
+**Root Cause Discovery**:
+- The `write_and_verify_attribute` function in `helpers.py` calls `read_attributes()` to verify written values
+- Log showed: `Readback result: ({0: <WindowCoveringType.Rollershade: 0>}, {})`
+- This is a tuple with format `(success_dict, failure_dict)`, not a dict
+- Code tried to call `.get()` on the tuple instead of the dict inside it
+
+**Why This Wasn't Caught Earlier**:
+- The endpoint API compatibility fix (v1.3.7.2) allowed calibration to START
+- But calibration Phase 1 immediately failed when trying to write `window_covering_type` attribute
+- The `write_and_verify_attribute` function only checked for list normalization, not tuple
+
+**The Bug** (helpers.py:806-812):
+```python
+# OLD (broken):
+if isinstance(readback, list) and readback:
+    readback = readback[0]
+
+for attr_id, expected in attrs.items():
+    actual = readback.get(attr_id)  # ❌ Fails if readback is tuple
+```
+
+**The Fix** (helpers.py:806-815):
+```python
+# NEW (compatible):
+if isinstance(readback, tuple) and len(readback) >= 1:
+    readback = readback[0]  # Extract success dict from tuple
+elif isinstance(readback, list) and readback:
+    readback = readback[0]
+
+for attr_id, expected in attrs.items():
+    actual = readback.get(attr_id)  # ✅ Works, readback is now dict
+```
+
+**Testing**: All 81 CI tests passing
+
+**Impact**:
+- J1 calibration attribute writes now work correctly
+- D1/S1 configuration services that use `write_and_verify_attribute` also fixed
+- Affects all device types
+
+**Lesson Learned**: HA 2025.11+ changed THREE API layers simultaneously:
+1. Gateway device access (`gateway.application_controller.devices` → `gateway.gateway.devices`) - Fixed v1.3.7.1
+2. Endpoint cluster access (`endpoint.in_clusters` → `endpoint.zigpy_endpoint.in_clusters`) - Fixed v1.3.7.2
+3. Attribute read response format (`dict` → `(success_dict, failure_dict)` tuple) - Fixed v1.3.7.3
+
+When fixing API compatibility, must test ENTIRE user flow, not just that code doesn't crash on import/setup. Need actual hardware testing!
+
+**Files Modified**:
+- `custom_components/ubisys/helpers.py` (lines 806-811: added tuple handling)

@@ -804,7 +804,10 @@ async def async_write_and_verify_attrs(
             _LOGGER.debug("Write+Verify: Readback result: %s", readback)
 
             # Normalize response
-            if isinstance(readback, list) and readback:
+            # HA 2025.11+ returns tuple (success_dict, failure_dict) instead of dict
+            if isinstance(readback, tuple) and len(readback) >= 1:
+                readback = readback[0]  # Extract success dict from tuple
+            elif isinstance(readback, list) and readback:
                 readback = readback[0]
 
             mismatches: dict[int, dict[str, int | None]] = {}
