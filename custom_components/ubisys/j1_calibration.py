@@ -885,9 +885,15 @@ async def _calibration_phase_3_find_bottom(
     _LOGGER.debug("Step 9: Reading total_steps attribute from device")
     try:
         result = await cluster.read_attributes(
-            ["total_steps"],
+            [UBISYS_ATTR_TOTAL_STEPS],  # HA 2025.11+: Use attribute ID, not string name
             manufacturer=UBISYS_MANUFACTURER_CODE,
         )
+
+        # HA 2025.11+ returns tuple (success_dict, failure_dict)
+        if isinstance(result, tuple) and len(result) >= 1:
+            result = result[0]  # Extract success dict
+        elif isinstance(result, list) and result:
+            result = result[0]
 
         # Handle both name and ID in response
         total_steps = cast(

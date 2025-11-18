@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
 ## [1.3.7.4] - 2025-11-18
 
 ### Fixed
@@ -636,3 +637,20 @@ See [Migration Guide](docs/migration_v2.0.md) for detailed instructions.
 - [GitHub Repository](https://github.com/jihlenburg/homeassistant-ubisys)
 - [Issue Tracker](https://github.com/jihlenburg/homeassistant-ubisys/issues)
 - [Documentation](docs/)
+
+## [1.3.7.5] - 2025-11-18
+
+### Fixed
+- **Critical**: Fixed attribute read using string name instead of ID
+  - J1 calibration read_attributes() called with string `["total_steps"]` instead of attribute ID
+  - HA 2025.11+ requires attribute IDs (integers), not names (strings)
+  - Error: `'total_steps'` during calibration Phase 3
+  - Fixed `j1_calibration.py:888` to use `UBISYS_ATTR_TOTAL_STEPS` constant
+  - Added tuple response handling for consistency
+  - J1 calibration total_steps reading now works
+
+### Technical Details
+- `read_attributes()` parameter changed in HA 2025.11+:
+  - Old: Accepted string names OR integer IDs
+  - New: Only accepts integer IDs
+- Always use attribute ID constants, never string names
