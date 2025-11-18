@@ -75,12 +75,32 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Ubisys button from config entry."""
+    """Set up Ubisys button from config entry.
+
+    Only creates calibration buttons for J1/J1-R window covering devices.
+    Other device types (D1 dimmers, S1 switches) don't have motors to calibrate.
+    """
     device_ieee = config_entry.data[CONF_DEVICE_IEEE]
+    model = config_entry.data.get("model", "J1")
+
+    # Only create calibration buttons for J1/J1-R window covering models
+    # Calibration is motor-specific: learns travel limits via stall detection
+    # D1 devices are dimmers (no motor, no calibration needed)
+    # S1 devices are switches (no motor, no calibration needed)
+    # Both D1/S1 have input configuration via services, but not calibration
+    from .const import WINDOW_COVERING_MODELS
+
+    if model not in WINDOW_COVERING_MODELS:
+        _LOGGER.debug(
+            "Skipping calibration buttons for non-window-covering device: model=%s (ieee=%s)",
+            model,
+            device_ieee,
+        )
+        return
 
     _LOGGER.log(
         logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
-        "Creating Ubisys calibration button for device: %s",
+        "Creating Ubisys calibration buttons for J1 device: %s",
         device_ieee,
     )
 

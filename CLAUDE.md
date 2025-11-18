@@ -213,6 +213,164 @@ User automations triggered
 
 4. **Shared Architecture**: All three device types (J1, D1, S1) use the same InputActions format and monitoring infrastructure, maximizing code reuse.
 
+### ZHA Gateway Compatibility Layer (v1.3.6+)
+
+The integration requires access to ZHA's internal gateway and device registry for direct Zigbee cluster operations (calibration, input configuration, monitoring). Home Assistant 2025.11+ introduced breaking changes to ZHA's internal data structures that required a compatibility layer.
+
+**The Problem:**
+
+Home Assistant has evolved how it stores ZHA runtime data through multiple versions:
+- **Older versions**: Direct `HAZHAData` object at `hass.data["zha"]`
+- **Transitional versions**: Dictionary `{"gateway": gateway}` at `hass.data["zha"]`
+- **Pre-2025.11**: Dictionary `{entry_id: HAZHAData}` with `.gateway` attribute
+- **HA 2025.11+**: Dictionary `{entry_id: HAZHAData}` with `.gateway_proxy` attribute (ZHAGatewayProxy wrapper)
+
+Additionally, the device registry access path changed:
+- **Old API**: `gateway.application_controller.devices`
+- **New API (2025.11+)**: `gateway.gateway.devices` (through ZHAGatewayProxy wrapper)
+
+**Architecture Overview:**
+
+```
+Integration → helpers.py → ZHA Internal APIs → Zigbee Devices
+                   ↓
+         Compatibility Layer
+                   ↓
+    ┌──────────────┴──────────────┐
+    │                             │
+Gateway Access              Device Registry Access
+    │                             │
+resolve_zha_gateway()        get_cluster()
+    │                             │
+Priority Check:              Branching Logic:
+1. .gateway_proxy (new)      1. gateway.application_controller.devices (old)
+2. .gateway (old)            2. gateway.gateway.devices (new)
+```
+
+**Gateway Access Pattern Evolution:**
+
+```python
+# helpers.py:resolve_zha_gateway() (lines 121-137)
+# Try both attribute names to support old and new HA versions
+for attr_name in ["gateway_proxy", "gateway"]:  # Prioritize newer API
+    if hasattr(candidate, attr_name):
+        gateway = getattr(candidate, attr_name)
+        if gateway:
+            return gateway
+```
+
+This pattern handles:
+- **HA 2025.11+**: Finds `.gateway_proxy` first, returns ZHAGatewayProxy wrapper
+- **Pre-2025.11**: Falls back to `.gateway`, returns direct gateway object
+- **Graceful Degradation**: Returns None if neither attribute exists, allowing caller to log context-specific errors
+
+**Device Registry Access Pattern Evolution:**
+
+```python
+# helpers.py:get_cluster() (lines 354-367)
+# Handle both device access APIs
+if hasattr(gateway, "application_controller"):
+    # Old API: direct gateway object
+    devices = gateway.application_controller.devices
+elif hasattr(gateway, "gateway"):
+    # New API: ZHAGatewayProxy wrapping gateway
+    devices = gateway.gateway.devices
+else:
+    # Future-proofing: log unknown pattern with diagnostic info
+    _LOGGER.error("Gateway has no known device access pattern. Type: %s", type(gateway).__name__)
+    return None
+```
+
+This pattern handles:
+- **Pre-2025.11 Gateway**: Direct access via `application_controller.devices`
+- **ZHAGatewayProxy Wrapper**: Double indirection via `gateway.gateway.devices`
+- **Future Changes**: Logs comprehensive error with gateway type and available attributes for debugging
+
+**ZHAGatewayProxy Wrapper Pattern:**
+
+```
+HA 2025.11+ introduced ZHAGatewayProxy as a wrapper around the actual gateway:
+
+HAZHAData.gateway_proxy (ZHAGatewayProxy)
+           ↓
+    ZHAGatewayProxy.gateway (actual gateway object)
+           ↓
+    gateway.devices (device registry)
+```
+
+The wrapper changes both:
+1. How we **find** the gateway (`.gateway_proxy` instead of `.gateway`)
+2. How we **access devices** (`.gateway.devices` instead of `.application_controller.devices`)
+
+**Design Decisions:**
+
+1. **Graceful Fallback, Not Version Detection**
+   - Use `hasattr()` checks instead of checking HA version strings
+   - More robust: works across forks, pre-releases, and unexpected versions
+   - Self-documenting: code clearly shows what attributes it expects
+
+2. **Priority Ordering**
+   - Check `.gateway_proxy` before `.gateway` to prefer newer API
+   - Check `application_controller` before `gateway.gateway` for backward compat
+   - Ensures we use the most appropriate API for the current HA version
+
+3. **Verbose Diagnostic Logging**
+   - Log which attribute was found: `"Found gateway via .gateway_proxy"`
+   - Log gateway type on failure: `"Gateway has no known device access pattern. Type: ZHAGatewayProxy"`
+   - Include available attributes in error logs (first 20 non-private attributes)
+   - Helps users report issues with enough context for fixes
+
+4. **Centralized Compatibility Functions**
+   - All gateway access goes through `resolve_zha_gateway()`
+   - All device/cluster access goes through `get_cluster()`
+   - Single point of maintenance for future HA API changes
+   - Used by: calibration, input configuration, input monitoring, diagnostics
+
+**Functions Implementing Compatibility:**
+
+- **`resolve_zha_gateway(zha_data)`** (helpers.py:53-145)
+  - Extracts gateway from various HA data layouts
+  - Handles `.gateway_proxy` and `.gateway` attributes
+  - Returns gateway object or None
+
+- **`get_cluster(hass, device_ieee, endpoint_id, cluster_id)`** (helpers.py:275-390)
+  - Complete device→endpoint→cluster resolution
+  - Handles both device registry access patterns
+  - Used by all features requiring direct Zigbee access
+
+**Guidance for Future HA API Changes:**
+
+When Home Assistant changes ZHA internals again:
+
+1. **Update Gateway Resolution** (if new attribute name):
+   ```python
+   for attr_name in ["new_attribute", "gateway_proxy", "gateway"]:
+       # Add new attribute to priority list
+   ```
+
+2. **Update Device Access** (if new access pattern):
+   ```python
+   if hasattr(gateway, "new_pattern"):
+       devices = gateway.new_pattern.devices
+   elif hasattr(gateway, "application_controller"):
+       # Keep existing patterns for backward compat
+   ```
+
+3. **Always Maintain Backward Compatibility**:
+   - Keep old patterns even after supporting new ones
+   - Users may run older HA versions
+   - Gradual deprecation is better than breaking changes
+
+4. **Add Diagnostic Logging**:
+   - Log which pattern was used (helps identify when HA changed)
+   - Log full error context when patterns fail (helps fix next breaking change)
+
+**Version History:**
+
+- **v1.3.6.5**: Added `.gateway_proxy` attribute check
+- **v1.3.6.7**: Added ZHAGatewayProxy device access pattern (`gateway.gateway.devices`)
+- **Current**: Fully compatible with HA 2024.x through 2025.11+
+
 ### Logging Policy (v2.1+)
 
 - Quiet by default; promote to INFO via options toggles:

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.6.8] - 2025-11-18
+
+### Fixed
+- **Bug**: Calibration buttons incorrectly created for D1/S1 devices
+  - Calibration buttons now only appear for J1/J1-R window covering devices
+  - D1 (dimmer) and S1 (switch) devices don't have motors, so calibration makes no sense
+  - Added model filtering to `button.py:async_setup_entry()` (same pattern as `cover.py`)
+  - Prevents confusing UI where non-applicable buttons appear on device pages
+
+### Documentation
+- **Developer Documentation**: Comprehensive update to reflect HA 2025.11+ ZHA compatibility layer
+  - Updated `helpers.py:resolve_zha_gateway()` docstring with `.gateway_proxy` attribute explanation
+  - Updated `helpers.py:get_cluster()` docstring with two-path device access pattern explanation
+  - Added new "ZHA Gateway Compatibility Layer" section to CLAUDE.md (architecture documentation)
+  - Documents gateway access patterns, device registry access patterns, design decisions, and future guidance
+  - Created `docs/work_log.md` to track development work chronologically
+
 ## [1.3.6.7] - 2025-11-17
 
 ### Fixed

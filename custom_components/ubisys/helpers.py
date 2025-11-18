@@ -55,12 +55,20 @@ def resolve_zha_gateway(zha_data: Any) -> Any | None:
 
     Home Assistant has changed how it stores ZHA runtime data over time:
         - Older versions exposed a HAZHAData object directly at hass.data["zha"]
-    - Transitional versions stored {"gateway": gateway}
-    - Current versions store {entry_id: HAZHAData} (dict of entry-specific data)
+        - Transitional versions stored {"gateway": gateway}
+        - Pre-2025.11 versions store {entry_id: HAZHAData} with .gateway attribute
+        - HA 2025.11+ versions store {entry_id: HAZHAData} with .gateway_proxy attribute
+          (ZHAGatewayProxy wrapper around actual gateway)
 
-    This helper inspects those layouts in order and returns the first gateway
-    it finds. Callers are still responsible for logging errors if the result is
-    None, since some call sites want different error wording.
+    This helper inspects those layouts and checks for both .gateway_proxy (newer)
+    and .gateway (older) attributes, returning the first gateway it finds.
+
+    Compatibility Note:
+        The function prioritizes .gateway_proxy over .gateway to handle HA 2025.11+
+        while maintaining backward compatibility with older versions.
+
+    Callers are still responsible for logging errors if the result is None,
+    since some call sites want different error wording.
     """
 
     if not zha_data:
@@ -274,9 +282,16 @@ async def get_cluster(
         1. Convert IEEE address string → EUI64 object (Zigbee format)
         2. Access ZHA integration data to get gateway
         3. Look up device in gateway's device registry by IEEE
+           - Old API (pre-2025.11): gateway.application_controller.devices
+           - New API (2025.11+): gateway.gateway.devices (ZHAGatewayProxy wrapper)
         4. Find the specified endpoint on the device
         5. Find the specified cluster within that endpoint
         6. Return cluster object for direct Zigbee operations
+
+    Why Two Device Access Patterns:
+        Home Assistant 2025.11+ introduced ZHAGatewayProxy wrapper which changes
+        the device access path from gateway.application_controller.devices to
+        gateway.gateway.devices. This function handles both patterns for compatibility.
 
     Why Direct Cluster Access:
         Some operations (like calibration, phase mode configuration) require
