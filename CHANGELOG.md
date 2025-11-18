@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.8.0] - 2025-11-18
+
+### Added
+- **UI Notifications for Calibration Progress**
+  - Persistent notifications show real-time calibration progress
+  - Updates after each phase with visual progress indicators
+  - Shows estimated time remaining (2-3 minutes)
+  - Success notification with total steps measured
+  - Error notification with helpful troubleshooting info
+  - Solves issue where UI gave no feedback after clicking "Calibrate"
+
+### User Experience
+When you click "Calibrate" button, you'll now see:
+1. **Initial notification**: "Calibration started" with Phase 1 status
+2. **Progress updates**: Each phase shows ✅ when complete, next phase in progress
+3. **Success notification**: Shows all completed phases and total steps
+4. **Error notification**: Shows what went wrong if calibration fails
+
+The notification updates automatically as the calibration progresses through all 5 phases, giving you visibility into what's happening during the 2-3 minute process.
+
+
 ## [1.3.7.9] - 2025-11-18
 
 ### Fixed

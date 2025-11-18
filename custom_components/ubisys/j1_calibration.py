@@ -73,6 +73,68 @@ _LOGGER = logging.getLogger(__name__)
 
 TOTAL_CALIBRATION_TIMEOUT = 300  # Maximum 5 minutes total (not yet used)
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Notification Helpers for UI Feedback
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _get_notification_id(entity_id: str) -> str:
+    """Get notification ID for calibration progress.
+
+    Args:
+        entity_id: The entity being calibrated
+
+    Returns:
+        Unique notification ID for this calibration
+    """
+    return f"ubisys_j1_calibration_{entity_id.replace('.', '_')}"
+
+
+async def _update_calibration_notification(
+    hass: HomeAssistant,
+    entity_id: str,
+    title: str,
+    message: str,
+) -> None:
+    """Update persistent notification with calibration progress.
+
+    Args:
+        hass: Home Assistant instance
+        entity_id: The entity being calibrated
+        title: Notification title
+        message: Notification message
+    """
+    await hass.services.async_call(
+        "persistent_notification",
+        "create",
+        {
+            "notification_id": _get_notification_id(entity_id),
+            "title": title,
+            "message": message,
+        },
+    )
+
+
+async def _dismiss_calibration_notification(
+    hass: HomeAssistant,
+    entity_id: str,
+) -> None:
+    """Dismiss calibration progress notification.
+
+    Args:
+        hass: Home Assistant instance
+        entity_id: The entity that was calibrated
+    """
+    await hass.services.async_call(
+        "persistent_notification",
+        "dismiss",
+        {
+            "notification_id": _get_notification_id(entity_id),
+        },
+    )
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # OperationalStatus Monitoring Constants (Official Ubisys Calibration Procedure)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1244,6 +1306,15 @@ async def _perform_calibration(
                 f"Could not access WindowCovering cluster for {device_ieee}"
             )
 
+        # Notify user that calibration is starting
+        await _update_calibration_notification(
+            hass,
+            zha_entity_id,
+            "J1 Calibration Started",
+            "Calibration in progress... This will take 2-3 minutes.\n\n"
+            "**Phase 1:** Preparing device...",
+        )
+
         # Execute 5-phase calibration sequence
         await _calibration_phase_1_enter_mode(cluster, shade_type)
         # Total timeout enforcement across phases
@@ -1251,12 +1322,30 @@ async def _perform_calibration(
             raise HomeAssistantError(
                 "Calibration exceeded total timeout during Phase 1"
             )
+        await _update_calibration_notification(
+            hass,
+            zha_entity_id,
+            "J1 Calibration In Progress",
+            "Calibration in progress... This will take 2-3 minutes.\n\n"
+            "✅ **Phase 1:** Device prepared\n"
+            "**Phase 2:** Finding top limit (motor moving up)...",
+        )
 
         await _calibration_phase_2_find_top(hass, cluster, zha_entity_id)
         if time.time() - overall_start > TOTAL_CALIBRATION_TIMEOUT:
             raise HomeAssistantError(
                 "Calibration exceeded total timeout during Phase 2"
             )
+        await _update_calibration_notification(
+            hass,
+            zha_entity_id,
+            "J1 Calibration In Progress",
+            "Calibration in progress... This will take 2-3 minutes.\n\n"
+            "✅ **Phase 1:** Device prepared\n"
+            "✅ **Phase 2:** Top limit found\n"
+            "**Phase 3:** Finding bottom limit (motor moving down)...",
+        )
+
         total_steps = await _calibration_phase_3_find_bottom(
             hass, cluster, zha_entity_id
         )
@@ -1264,14 +1353,51 @@ async def _perform_calibration(
             raise HomeAssistantError(
                 "Calibration exceeded total timeout during Phase 3"
             )
+        await _update_calibration_notification(
+            hass,
+            zha_entity_id,
+            "J1 Calibration In Progress",
+            "Calibration in progress... This will take 2-3 minutes.\n\n"
+            "✅ **Phase 1:** Device prepared\n"
+            "✅ **Phase 2:** Top limit found\n"
+            "✅ **Phase 3:** Bottom limit found\n"
+            "**Phase 4:** Verifying (motor returning to top)...",
+        )
+
         await _calibration_phase_4_verify(hass, cluster, zha_entity_id)
         if time.time() - overall_start > TOTAL_CALIBRATION_TIMEOUT:
             raise HomeAssistantError(
                 "Calibration exceeded total timeout during Phase 4"
             )
+        await _update_calibration_notification(
+            hass,
+            zha_entity_id,
+            "J1 Calibration In Progress",
+            "Calibration in progress... Almost done!\n\n"
+            "✅ **Phase 1:** Device prepared\n"
+            "✅ **Phase 2:** Top limit found\n"
+            "✅ **Phase 3:** Bottom limit found\n"
+            "✅ **Phase 4:** Verification complete\n"
+            "**Phase 5:** Finalizing...",
+        )
+
         await _calibration_phase_5_finalize(cluster, shade_type, total_steps)
 
-        # Success!
+        # Success! Dismiss notification with success message
+        await _update_calibration_notification(
+            hass,
+            zha_entity_id,
+            "J1 Calibration Complete ✅",
+            "Calibration completed successfully!\n\n"
+            "✅ **Phase 1:** Device prepared\n"
+            "✅ **Phase 2:** Top limit found\n"
+            "✅ **Phase 3:** Bottom limit found\n"
+            "✅ **Phase 4:** Verification complete\n"
+            "✅ **Phase 5:** Finalized\n\n"
+            f"Total steps measured: {total_steps}\n\n"
+            "Your window covering is now calibrated and ready to use!",
+        )
+
         if is_verbose_info_logging(hass):
             info_banner(
                 _LOGGER,
@@ -1281,6 +1407,15 @@ async def _perform_calibration(
             )
 
     except Exception as err:
+        # Update notification with error
+        await _update_calibration_notification(
+            hass,
+            zha_entity_id,
+            "J1 Calibration Failed ❌",
+            f"Calibration failed with error:\n\n{str(err)}\n\n"
+            "Please check the logs for more details and try again.",
+        )
+
         if is_verbose_info_logging(hass):
             info_banner(
                 _LOGGER,
