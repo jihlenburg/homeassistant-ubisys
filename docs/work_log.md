@@ -291,3 +291,50 @@ When fixing API compatibility, must test ENTIRE user flow, not just that code do
 
 **Files Modified**:
 - `custom_components/ubisys/helpers.py` (lines 806-811: added tuple handling)
+
+---
+
+### Critical Hotfix: Cluster Command API (v1.3.7.4)
+
+**Context**: User tested v1.3.7.3 and calibration got past attribute writes but failed on motor command with: `Cluster command failed: up_open: 'up_open'`
+
+**Root Cause Discovery**:
+- The `async_zcl_command` helper calls `cluster.command(command_name, *args, **kwargs)`
+- HA 2025.11+ removed the `.command()` method from cluster objects
+- Commands are now direct attributes on the cluster (e.g., `cluster.up_open()` instead of `cluster.command("up_open")`)
+- The error message was just the string `'up_open'` because that's what the exception contained
+
+**The Bug** (helpers.py:741):
+```python
+# OLD (broken):
+await cluster.command(command, *args, **kwargs)  # ❌ .command() doesn't exist
+```
+
+**The Fix** (helpers.py:741-745):
+```python
+# NEW (compatible):
+command_fn = getattr(cluster, command, None)
+if command_fn is None:
+    raise HomeAssistantError(f"Cluster has no command: {command}")
+await command_fn(*args, **kwargs)  # ✅ Call command method directly
+```
+
+**Testing**: All 81 CI tests passing
+- Updated test mock `FakeCluster` to use `__getattr__` for dynamic command method creation
+
+**Impact**:
+- J1 calibration motor commands now work (up_open, down_close, stop)
+- D1 configuration commands also fixed
+- All cluster command execution compatible with HA 2025.11+
+
+**Lesson Learned**: HA 2025.11+ changed FOUR API layers simultaneously:
+1. Gateway device access (`gateway.application_controller.devices` → `gateway.gateway.devices`) - Fixed v1.3.7.1
+2. Endpoint cluster access (`endpoint.in_clusters` → `endpoint.zigpy_endpoint.in_clusters`) - Fixed v1.3.7.2
+3. Attribute read response format (`dict` → `(success_dict, failure_dict)` tuple) - Fixed v1.3.7.3
+4. Cluster command API (`cluster.command(name)` → `cluster.name()` direct call) - Fixed v1.3.7.4
+
+This is an unprecedented amount of breaking changes in a single HA version. Each fix uncovered the next layer of breakage.
+
+**Files Modified**:
+- `custom_components/ubisys/helpers.py` (lines 741-745: getattr command lookup)
+- `tests/test_helpers_device_utils.py` (lines 31-41: updated FakeCluster mock)

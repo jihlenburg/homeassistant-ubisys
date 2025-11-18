@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.7.4] - 2025-11-18
+
+### Fixed
+- **Critical**: Fixed cluster command execution in `async_zcl_command`
+  - HA 2025.11+ changed cluster command API
+  - Old: `cluster.command(command_name, *args, **kwargs)`
+  - New: `getattr(cluster, command_name)(*args, **kwargs)` - call command method directly
+  - Error: `Cluster command failed: up_open: 'up_open'` during calibration
+  - Fixed `helpers.py:741-745` to use getattr for command method lookup
+  - J1 calibration motor commands now work correctly (up_open, down_close, stop)
+  - Also affects D1 configuration commands
+
+### Technical Details
+- The `cluster.command()` method no longer exists in HA 2025.11+
+- Commands are now attributes on the cluster object (e.g., `cluster.up_open()`)
+- Used `getattr(cluster, command_name)` to dynamically look up and call command methods
+- Updated test mocks to use `__getattr__` to support dynamic command method creation
+
 ## [1.3.7.3] - 2025-11-18
 
 ### Fixed

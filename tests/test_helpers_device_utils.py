@@ -28,12 +28,17 @@ class FakeCluster:
         self.calls: list[Tuple[str, Tuple[Any, ...], Dict[str, Any]]] = []
         self._fail_times = fail_times
 
-    async def command(self, command: str, *args: Any, **kwargs: Any) -> None:
-        self.calls.append((command, args, kwargs))
-        if self._fail_times > 0:
-            self._fail_times -= 1
-            raise RuntimeError("boom")
-        await asyncio.sleep(0)
+    def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
+        """Return a callable that records the command call."""
+
+        async def command_fn(*args: Any, **kwargs: Any) -> None:
+            self.calls.append((name, args, kwargs))
+            if self._fail_times > 0:
+                self._fail_times -= 1
+                raise RuntimeError("boom")
+            await asyncio.sleep(0)
+
+        return command_fn
 
 
 def test_extract_model_from_device_handles_suffix():

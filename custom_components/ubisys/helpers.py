@@ -738,7 +738,11 @@ async def async_zcl_command(
             async with timeout(timeout_s):
                 # Execute command and ignore any return value; callers rely on
                 # success/exception rather than command response payload.
-                await cluster.command(command, *args, **kwargs)
+                # HA 2025.11+: Use getattr to call command method directly
+                command_fn = getattr(cluster, command, None)
+                if command_fn is None:
+                    raise HomeAssistantError(f"Cluster has no command: {command}")
+                await command_fn(*args, **kwargs)
                 return None
         except Exception as err:
             last_err = err
