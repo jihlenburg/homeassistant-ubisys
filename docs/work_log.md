@@ -4,6 +4,56 @@ This log tracks meaningful development work on the Ubisys integration.
 
 ## 2025-11-18
 
+### CRITICAL: "Falsy Zero" Bug in OperationalStatus Detection (v1.3.7.8)
+
+**Context**: Immediately after releasing v1.3.7.7 (Mode attribute namespace fix), tested calibration on real hardware and encountered a new failure.
+
+**Error Observed**:
+```
+WARNING: OperationalStatus not in response: {10: <bitmap8: 0>}
+ERROR: OperationalStatus attribute missing from 5 consecutive reads during finding top limit (up)
+```
+
+**The Mystery**: Device WAS returning OperationalStatus (attribute 10) with value `<bitmap8: 0>`, but code was treating it as missing!
+
+**Root Cause Discovery**:
+Code line 1574-1576 in j1_calibration.py:
+```python
+operational_status = result.get(OPERATIONAL_STATUS_ATTR) or result.get("operational_status")
+```
+
+When motor stops:
+1. Device returns: `{10: <bitmap8: 0>}` where 0 = MOTOR_STOPPED (correct!)
+2. `result.get(10)` returns `<bitmap8: 0>`
+3. Python's `or` operator treats 0 as **falsy**: `<bitmap8: 0> or None` evaluates to `None`!
+4. Code incorrectly thinks attribute is missing
+
+**Classic Python Gotcha**: Using `or` for fallback fails when valid values can be falsy (0, False, "", [], {}, etc.)
+
+**The Fix**:
+```python
+# WRONG - treats 0 as falsy
+operational_status = result.get(OPERATIONAL_STATUS_ATTR) or result.get("operational_status")
+
+# CORRECT - only use fallback if truly None
+operational_status = result.get(OPERATIONAL_STATUS_ATTR)
+if operational_status is None:
+    operational_status = result.get("operational_status")
+```
+
+**Files Modified**:
+- `custom_components/ubisys/j1_calibration.py`: Fixed OperationalStatus fallback logic (line 1574-1577)
+- `custom_components/ubisys/manifest.json`: v1.3.7.8
+- `CHANGELOG.md`: Added v1.3.7.8 entry with technical explanation
+
+**Testing**: All 11 J1 calibration tests passing.
+
+**Impact**: Critical fix - calibration would always fail at motor stop detection. This bug completely prevented v1.3.7.7 from working.
+
+**Lesson**: Never use `or` for fallback logic when the valid value might be 0, False, empty string, or other falsy values. Always explicitly check `is None` to distinguish between "value is falsy" and "value is missing".
+
+---
+
 ### CRITICAL: Mode Attribute Bug Fix - Standard vs Manufacturer-Specific (v1.3.7.7)
 
 **Context**: v1.3.7.6 was released with a complete calibration rewrite (OperationalStatus monitoring), but immediately failed in production with `UNSUPPORTED_ATTRIBUTE (134)` error when trying to enter calibration mode.

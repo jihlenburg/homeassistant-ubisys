@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.7.8] - 2025-11-18
+
+### Fixed
+- **CRITICAL**: Fixed "falsy zero" bug in OperationalStatus detection
+  - Motor stopped status (0x00) was being treated as "attribute missing"
+  - Code used `result.get(attr) or result.get("name")` which treats 0 as falsy
+  - Changed to proper `is None` checking: `if result.get(attr) is None: try fallback`
+  - Device WAS returning correct value, but Python's `or` operator was the culprit
+  - Classic Python gotcha: `<bitmap8: 0> or None` evaluates to `None`, not `0`!
+
+### Technical Details
+The bug was in j1_calibration.py line 1574-1576:
+```python
+# WRONG - treats 0 as falsy!
+operational_status = result.get(OPERATIONAL_STATUS_ATTR) or result.get("operational_status")
+
+# CORRECT - only use fallback if truly None
+operational_status = result.get(OPERATIONAL_STATUS_ATTR)
+if operational_status is None:
+    operational_status = result.get("operational_status")
+```
+
+When device returned `{10: <bitmap8: 0>}` (motor stopped), the `or` operator saw the zero value as falsy and evaluated the right side, returning `None` instead of `0`. This caused calibration to fail with "OperationalStatus attribute missing" errors even though the device was correctly reporting motor stopped.
+
+**Lesson**: Never use `or` for fallback when the valid value might be 0, False, empty string, or other falsy values. Always check `is None` explicitly.
+
+
 ## [1.3.7.7] - 2025-11-18
 
 ### Fixed

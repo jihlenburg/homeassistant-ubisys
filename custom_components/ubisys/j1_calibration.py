@@ -1571,9 +1571,10 @@ async def _wait_for_motor_stop(
                 result = result[0]
 
             # Get status value (try both attribute ID and name for compatibility)
-            operational_status = result.get(OPERATIONAL_STATUS_ATTR) or result.get(
-                "operational_status"
-            )
+            # CRITICAL: Must check "is None" not use "or" because 0 (MOTOR_STOPPED) is falsy!
+            operational_status = result.get(OPERATIONAL_STATUS_ATTR)
+            if operational_status is None:
+                operational_status = result.get("operational_status")
 
             if operational_status is None:
                 # Attribute read succeeded but status not in response - unusual
