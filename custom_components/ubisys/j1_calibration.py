@@ -1444,19 +1444,14 @@ async def _prepare_calibration_limits(cluster: Cluster) -> None:
 
     Reference: Ubisys J1 Technical Reference, Section 7.2.5.1, Step 2
 
-    This step ensures clean calibration by:
-    1. Setting expected physical range (0-240cm lift, 0-90° tilt)
-    2. Marking transition/total steps as invalid (0xFFFF)
+    This step sets physical range limits for the calibration. For re-calibration,
+    the device will not accept 0xFFFF for TotalSteps (it refuses to invalidate
+    a working calibration). Instead, entering calibration mode (Step 3) is
+    sufficient to trigger re-calibration.
 
-    Why This Matters:
-    - First calibration: TotalSteps already 0xFFFF (no-op, but harmless)
-    - Re-calibration: Resets device to uncalibrated state
-    - Official procedure: Explicitly required in documentation
-
-    We include this for:
-    - Robustness (handles re-calibration correctly)
-    - Compliance (follows official procedure exactly)
-    - Safety (explicit state reset prevents confusion)
+    Behavior:
+    - First calibration: Device has TotalSteps=0xFFFF, we write all attributes
+    - Re-calibration: Device refuses 0xFFFF, we only write physical limits
 
     Args:
         cluster: WindowCovering cluster for attribute writes
@@ -1465,9 +1460,33 @@ async def _prepare_calibration_limits(cluster: Cluster) -> None:
         HomeAssistantError: If attribute write fails
     """
     try:
-        await async_write_and_verify_attrs(
+        # First, check if device is already calibrated
+        result = await async_read_attrs(
             cluster,
-            {
+            [UBISYS_ATTR_TOTAL_STEPS],
+            manufacturer=UBISYS_MANUFACTURER_CODE,
+        )
+        current_total_steps = result.get(UBISYS_ATTR_TOTAL_STEPS, 0xFFFF)
+
+        is_already_calibrated = current_total_steps != 0xFFFF
+
+        if is_already_calibrated:
+            _LOGGER.info(
+                f"Device already calibrated (TotalSteps={current_total_steps}), "
+                "skipping steps reset for re-calibration"
+            )
+            # For re-calibration, only write physical limits
+            # Device won't accept 0xFFFF for steps when already calibrated
+            attrs_to_write = {
+                UBISYS_ATTR_INSTALLED_OPEN_LIMIT_LIFT: 0x0000,  # 0 cm
+                UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_LIFT: 0x00F0,  # 240 cm
+                UBISYS_ATTR_INSTALLED_OPEN_LIMIT_TILT: 0x0000,  # 0°
+                UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_TILT: 0x0384,  # 90° (900 tenths)
+            }
+        else:
+            _LOGGER.debug("Device not yet calibrated, writing all attributes")
+            # For first-time calibration, write everything including steps reset
+            attrs_to_write = {
                 # Physical limits (standard values from official docs)
                 UBISYS_ATTR_INSTALLED_OPEN_LIMIT_LIFT: 0x0000,  # 0 cm
                 UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_LIFT: 0x00F0,  # 240 cm
@@ -1478,10 +1497,14 @@ async def _prepare_calibration_limits(cluster: Cluster) -> None:
                 UBISYS_ATTR_TOTAL_STEPS: 0xFFFF,
                 0x1003: 0xFFFF,  # LiftToTiltTransitionSteps2
                 0x1004: 0xFFFF,  # TotalSteps2
-            },
+            }
+
+        await async_write_and_verify_attrs(
+            cluster,
+            attrs_to_write,
             manufacturer=UBISYS_MANUFACTURER_CODE,
         )
-        _LOGGER.debug("✓ Wrote initial calibration limits")
+        _LOGGER.debug("✓ Wrote calibration limits")
     except Exception as err:
         raise HomeAssistantError(
             f"Failed to write initial calibration limits: {err}"

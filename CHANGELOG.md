@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.8.1] - 2025-11-18
+
+### Fixed
+- **Fixed re-calibration attribute write failure**
+  - Device was correctly refusing to accept 0xFFFF for TotalSteps when already calibrated
+  - Modified `_prepare_calibration_limits()` to detect already-calibrated devices
+  - For re-calibration: Only writes physical limits, skips steps reset
+  - For first-time calibration: Writes everything including steps reset (0xFFFF)
+  - Entering calibration mode (Step 3) is what triggers re-calibration, not writing 0xFFFF
+
+### Technical Details
+The J1 device refuses to accept 0xFFFF for TotalSteps/TotalSteps2 attributes when it already has a valid calibration. This is correct device behavior - it prevents accidental de-calibration. The fix reads the current TotalSteps value first and adapts the write operation accordingly.
+
+
 ## [1.3.8.0] - 2025-11-18
 
 ### Added
