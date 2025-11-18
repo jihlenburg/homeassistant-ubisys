@@ -57,3 +57,59 @@ This log tracks meaningful development work on the Ubisys integration.
 - How to handle future HA API changes
 
 **Follow-up**: None required - documentation now accurately reflects implementation.
+---
+
+### Feature: Automated Orphan Cleanup Service
+
+**Context**: User encountered "ghost" device named "Jalousie" that kept appearing during integration setup. Investigation revealed orphaned devices in registry's `deleted_devices` list (recycle bin) from previous integration installations.
+
+**Problem Discovery**:
+1. SSH'd into HA and inspected `/config/.storage/core.device_registry`
+2. Found 2 orphaned devices in `deleted_devices` list:
+   - "Jalousie" (from old integration setup)
+   - One unnamed orphaned device
+3. Manual cleanup required stopping HA, editing registry JSON, restarting HA
+4. User requested automated solution to prevent recurrence
+
+**Solution**: Implemented `ubisys.cleanup_orphans` service (v1.3.7)
+
+**Implementation Details**:
+
+1. **Created cleanup.py module** (new file):
+   - `async_cleanup_orphans()`: Main service handler with dry_run support
+   - `_find_orphaned_devices()`: Scans `deleted_devices` list for Ubisys identifiers
+   - `_find_orphaned_entities()`: Finds entities with missing/invalid config_entry_id
+   - `_remove_deleted_devices()`: Removes orphans from recycle bin and saves registry
+   - Returns detailed results (device IDs, entity IDs, dry_run flag)
+
+2. **Updated __init__.py** (lines 95, 324-402):
+   - Added import: `from .cleanup import async_cleanup_orphans`
+   - Enhanced `_cleanup_orphans_service()` handler with comprehensive logic
+   - Added voluptuous schema: `vol.Optional("dry_run", default=False): cv.boolean`
+   - Implemented persistent notifications for user feedback (both dry_run preview and actual cleanup results)
+   - Integrated verbose logging with existing logging toggles
+
+3. **Updated services.yaml** (lines 272-327):
+   - Added comprehensive service definition with detailed description
+   - Documented what gets cleaned, when to use, safety features, example scenarios
+   - Added dry_run field with boolean selector
+   - Included helpful tip: "Always run with dry_run=true first!"
+
+**Key Features**:
+- **Dry Run Mode**: Preview orphans without making changes (shows persistent notification)
+- **Safe**: Only removes items with Ubisys identifiers (`DOMAIN="ubisys"`)
+- **Comprehensive**: Handles both orphaned entities AND orphaned devices in deleted_devices
+- **User Feedback**: Persistent notifications show cleanup results
+- **No Downtime**: Runs while HA is running (unlike manual registry editing)
+
+**Testing**: All 81 CI tests passing
+
+**Impact**:
+- Users can now clean up ghost devices via Developer Tools → Services → ubisys.cleanup_orphans
+- Eliminates need for manual registry editing, SSH access, or HA downtime
+- Solves recurring "old device names appearing during setup" issue
+
+**Files Modified**:
+- `custom_components/ubisys/cleanup.py` (new, 250 lines)
+- `custom_components/ubisys/__init__.py` (enhanced service handler)
+- `custom_components/ubisys/services.yaml` (added service definition)

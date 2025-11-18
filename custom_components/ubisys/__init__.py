@@ -66,6 +66,7 @@ except Exception:  # Older HA versions may not provide this helper
     async_track_device_registry_updated_event = None
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
+from .cleanup import async_cleanup_orphans
 from .const import (
     CONF_DEVICE_ID,
     DOMAIN,
@@ -320,44 +321,84 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Note: S1 input configuration is now done via Config Flow UI
     # (Settings → Devices & Services → Ubisys → Configure)
 
-    # Register orphan cleanup service (manual fallback for edge cases)
+    # Register orphan cleanup service (comprehensive cleanup of devices and entities)
+    # Upgraded in v1.3.7 to handle both orphaned entities AND orphaned devices in deleted_devices
     _LOGGER.debug("Registering orphan cleanup service: ubisys.cleanup_orphans")
 
     async def _cleanup_orphans_service(call: ServiceCall) -> None:
-        """Clean up orphaned Ubisys entities across all devices."""
-        total_cleaned = 0
-        for entry in hass.config_entries.async_entries(DOMAIN):
-            ieee = entry.data.get("device_ieee")
-            if ieee:
-                count = await _cleanup_orphaned_entities(hass, ieee)
-                total_cleaned += count
+        """Clean up orphaned Ubisys devices and entities.
 
-        _LOGGER.log(
-            logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
-            "Manual cleanup completed: removed %d orphaned entities",
-            total_cleaned,
-        )
+        Comprehensive cleanup that handles:
+        - Orphaned entities (no valid config entry)
+        - Orphaned devices in deleted_devices list (like the "Jalousie" ghost)
 
-        # Create persistent notification for user feedback
-        if total_cleaned > 0:
+        Supports dry_run parameter for preview without making changes.
+        """
+        result = await async_cleanup_orphans(hass, call)
+
+        dry_run = result.get("dry_run", False)
+        devices_count = len(result.get("orphaned_devices", []))
+        entities_count = len(result.get("orphaned_entities", []))
+
+        if dry_run:
+            # Dry run - show what would be cleaned
+            _LOGGER.info(
+                "Dry run: Found %d orphaned devices and %d orphaned entities",
+                devices_count,
+                entities_count,
+            )
+
+            # Create notification with preview
             try:
+                message = f"Found {devices_count} orphaned devices and {entities_count} orphaned entities.\n"
+                message += "Run without dry_run=true to remove them."
+
                 await hass.services.async_call(
                     "persistent_notification",
                     "create",
                     {
-                        "message": f"Cleaned up {total_cleaned} orphaned Ubisys entities.",
-                        "title": "Ubisys Cleanup Complete",
-                        "notification_id": "ubisys_cleanup_complete",
+                        "message": message,
+                        "title": "Ubisys Cleanup Preview",
+                        "notification_id": "ubisys_cleanup_preview",
                     },
                 )
             except Exception:
                 _LOGGER.debug("Could not create notification", exc_info=True)
+        else:
+            # Actual cleanup - show results
+            _LOGGER.log(
+                logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+                "Cleanup completed: removed %d devices and %d entities",
+                devices_count,
+                entities_count,
+            )
+
+            # Create notification for user feedback
+            if devices_count > 0 or entities_count > 0:
+                try:
+                    message = f"Removed {devices_count} orphaned devices and {entities_count} orphaned entities."
+
+                    await hass.services.async_call(
+                        "persistent_notification",
+                        "create",
+                        {
+                            "message": message,
+                            "title": "Ubisys Cleanup Complete",
+                            "notification_id": "ubisys_cleanup_complete",
+                        },
+                    )
+                except Exception:
+                    _LOGGER.debug("Could not create notification", exc_info=True)
 
     hass.services.async_register(
         DOMAIN,
         "cleanup_orphans",
         _cleanup_orphans_service,
-        schema=vol.Schema({}),
+        schema=vol.Schema(
+            {
+                vol.Optional("dry_run", default=False): cv.boolean,
+            }
+        ),
     )
 
     # Gate registration info to reduce noise

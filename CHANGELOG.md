@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.7] - 2025-11-18
+
+### Added
+- **New Service**: `ubisys.cleanup_orphans` - Automated cleanup of orphaned devices and entities
+  - Removes orphaned entities with no valid config entry
+  - Removes deleted devices still in registry's recycle bin (like the "Jalousie" ghost device)
+  - Supports `dry_run` parameter for safe preview without making changes
+  - Displays persistent notifications with cleanup results
+  - Solves the "old device names appearing during setup" problem
+  - Eliminates need for manual registry editing or Home Assistant downtime
+  - Created new `cleanup.py` module with comprehensive cleanup logic
+  - Updated `services.yaml` with detailed service documentation and examples
+  - Enhanced `__init__.py` service handler with user feedback notifications
+
+### Changed
+- Service registration now includes comprehensive orphan cleanup handler
+  - Replaces stub `_cleanup_orphans_service()` with full implementation
+  - Integrates with new `cleanup.py` module for device/entity detection and removal
+
 ## [1.3.6.8] - 2025-11-18
 
 ### Fixed

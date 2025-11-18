@@ -268,3 +268,59 @@ tune_j1_advanced:
 #
 # This provides preset-based configuration with automatic rollback on failure.
 # The old configure_s1_input service has been removed in v2.1.0.
+
+# =============================================================================
+# MAINTENANCE SERVICES
+# =============================================================================
+
+cleanup_orphans:
+  name: Clean Up Orphaned Devices and Entities
+  description: >
+    Remove orphaned Ubisys devices and entities from Home Assistant registries.
+
+
+    **What gets cleaned:**
+
+    - Orphaned entities with no valid config entry
+
+    - Deleted devices still in the registry's recycle bin
+
+
+    **When to use this:**
+
+    - After removing and re-adding the integration
+
+    - When old device names appear during setup
+
+    - To clean up "ghost" entities that can't be removed via UI
+
+
+    **Safety:**
+
+    - Use dry_run=true first to preview what will be removed
+
+    - Only removes items with Ubisys identifiers
+
+    - Does not affect active/working devices or entities
+
+
+    **Example scenarios:**
+
+    - "Jalousie" ghost device from old integration setup
+
+    - Entities from deleted config entries
+
+    - Duplicate entities after integration reinstall
+
+
+    **Tip:** Always run with dry_run=true first to see what will be cleaned!
+  fields:
+    dry_run:
+      name: Dry Run (Preview Only)
+      description: >
+        Preview what would be cleaned without making changes.
+        Shows a notification with the count of orphaned items found.
+      required: false
+      default: false
+      selector:
+        boolean:
