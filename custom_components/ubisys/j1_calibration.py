@@ -1,15 +1,19 @@
 """Calibration module for Ubisys J1 window covering controller.
 
-This module provides automated calibration of Ubisys J1 devices using proper
-limit detection via motor stall monitoring. The calibration sequence follows
-the proven deCONZ approach:
+This module provides automated calibration of Ubisys J1 devices following
+the official Ubisys calibration procedure. The device automatically detects
+physical limits and stops the motor when reached.
 
-1. Enter calibration mode
-2. Find top limit (motor stall detection)
-3. Find bottom limit (motor stall detection)
-4. Return to top (verification)
-5. Configure device (tilt steps, configured_mode)
-6. Exit calibration mode
+Calibration sequence:
+
+1. Configure device (window_covering_type for shade type)
+2. Find top limit (device auto-stops at physical limit)
+3. Find bottom limit (device auto-stops and calculates total_steps)
+4. Return to top (verification that limits were correctly learned)
+5. Configure tilt steps (for venetian blinds)
+
+The device enters calibration behavior automatically when TotalSteps is
+uninitialized (0xFFFF) and learns limits through the up-down-up sequence.
 
 This works for both roller blinds and venetian blinds.
 """
@@ -26,12 +30,12 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
-    CALIBRATION_MODE_ATTR,
-    CALIBRATION_MODE_ENTER,
-    CALIBRATION_MODE_EXIT,
     CONF_DEVICE_IEEE,
     CONF_SHADE_TYPE,
     DOMAIN,
+    MODE_ATTR,
+    MODE_CALIBRATION,
+    MODE_NORMAL,
     PER_MOVE_TIMEOUT,
     SETTLE_TIME,
     SHADE_TYPE_TILT_STEPS,
@@ -41,6 +45,10 @@ from .const import (
     UBISYS_ATTR_ADDITIONAL_STEPS,
     UBISYS_ATTR_CONFIGURED_MODE,
     UBISYS_ATTR_INACTIVE_POWER_THRESHOLD,
+    UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_LIFT,
+    UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_TILT,
+    UBISYS_ATTR_INSTALLED_OPEN_LIMIT_LIFT,
+    UBISYS_ATTR_INSTALLED_OPEN_LIMIT_TILT,
     UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS,
     UBISYS_ATTR_STARTUP_STEPS,
     UBISYS_ATTR_TOTAL_STEPS,
@@ -600,57 +608,35 @@ async def _calibration_phase_1_enter_mode(
     cluster: Cluster,
     shade_type: str,
 ) -> None:
-    """PHASE 1: Enter calibration mode and configure shade type.
+    """PHASE 1: Prepare device for calibration.
 
-    Prepares the Ubisys J1 device for calibration by entering a special
-    device mode and configuring the window covering type.
+    Implements Official Ubisys Procedure Steps 1-3:
 
-    What is Calibration Mode?
+    Step 1 (Choose Device Type):
+        Write WindowCoveringType (0x10F2:0x0000) based on shade type
 
-    The J1 has a special calibration mode (manufacturer-specific attribute 0x0017)
-    with these values:
-        - 0x00: Normal operation mode
-        - 0x02: Calibration mode (what we set here)
+    Step 2 (Prepare Calibration):
+        Write initial limit values to reset device to uncalibrated state
 
-    In calibration mode, the device:
-        - Counts motor steps during movement
-        - Calculates total_steps automatically
-        - Allows writing special configuration attributes
-        - Disables normal position limit enforcement
+    Step 3 (Enter Calibration Mode):
+        Write Mode attribute (0x0017) = 0x02 to enter calibration
 
-    Why Set window_covering_type?
+    Reference: Ubisys J1 Technical Reference, Section 7.2.5.1
 
-    CRITICAL FIX (v1.2.0): Corrected attribute ID from 0x1000 → 0x0000
-        - Previous code was accidentally writing to TurnaroundGuardTime (0x1000)
-        - Now correctly writes to WindowCoveringType (0x10F2:0x0000)
-        - This prevents unintended modification of device guard time settings
+    CRITICAL FIXES (v1.3.7.7):
+    - Mode attribute (0x0017) is STANDARD ZCL, not manufacturer-specific
+    - Added Step 2 (prepare limits) per official procedure
+    - Removed manufacturer code from Mode attribute writes
 
-    The window_covering_type attribute (manufacturer 0x10F2, attribute 0x0000)
-    tells the device what type of window covering is attached. This affects how
-    the device interprets commands and calculates positions.
-
-    Values from const.py SHADE_TYPE_TO_WINDOW_COVERING_TYPE:
+    Values from SHADE_TYPE_TO_WINDOW_COVERING_TYPE:
         - 0x00: Roller shade / Cellular shade (position only)
         - 0x04: Vertical blind (position only)
         - 0x08: Venetian blind / Exterior venetian (position + tilt)
 
-    Phase Sequence:
-        Step 1: Write mode attribute = 0x02 (enter calibration mode)
-                Wait SETTLE_TIME (1s) for device to enter mode
-
-        Step 2: Write window_covering_type based on shade type
-                Maps shade_type string → WindowCoveringType enum value
-                Wait SETTLE_TIME (1s) for device to accept configuration
-
-    Why the delays?
-
-    SETTLE_TIME (1s) after each write allows the device to:
-        - Process the attribute write
-        - Update internal state
-        - Prepare for next command
-
-    Skipping delays can cause subsequent commands to fail because device
-    hasn't finished processing the mode change.
+    Why the delays (SETTLE_TIME)?
+    - Allow device to process attribute writes
+    - Update internal state before next command
+    - Prevents command failures from racing
 
     Args:
         cluster: WindowCovering cluster for Zigbee communication
@@ -658,35 +644,32 @@ async def _calibration_phase_1_enter_mode(
                    venetian, exterior_venetian)
 
     Raises:
-        HomeAssistantError: If either write operation fails
-            - Mode write failure → Zigbee communication issue
-            - window_covering_type write failure → Invalid shade type or cluster issue
+        HomeAssistantError: If any write operation fails
+            - WindowCoveringType write → Invalid shade type or cluster issue
+            - Calibration limits write → Device communication error
+            - Mode write → Device doesn't support calibration mode
 
     Example:
         >>> await _calibration_phase_1_enter_mode(cluster, "venetian")
-        # Device now in calibration mode, configured as venetian blind
+        # Device now in calibration mode, ready to learn limits
 
     See Also:
-        - _enter_calibration_mode(): Helper that writes mode=0x02
-        - _exit_calibration_mode(): Reverses this (mode=0x00)
-        - const.py SHADE_TYPE_TO_WINDOW_COVERING_TYPE: Mappings
+        - _prepare_calibration_limits(): Step 2 implementation
+        - _enter_calibration_mode(): Step 3 implementation
+        - _exit_calibration_mode(): Returns to normal mode
     """
     sw = Stopwatch()
 
     kv(
         _LOGGER,
         logging.DEBUG,
-        "PHASE 1: Entering calibration mode",
+        "PHASE 1: Preparing calibration",
         shade_type=shade_type,
     )
 
-    # Step 1: Enter calibration mode
-    _LOGGER.debug("Step 1: Writing calibration mode = 0x02")
-    await _enter_calibration_mode(cluster)
-    await asyncio.sleep(SETTLE_TIME)
-
-    # Step 2: Write & verify window_covering_type based on shade type
+    # Step 1: Write WindowCoveringType (manufacturer-specific)
     window_covering_type = SHADE_TYPE_TO_WINDOW_COVERING_TYPE.get(shade_type, 0x00)
+    _LOGGER.debug("Step 1: Writing WindowCoveringType = 0x%02X", window_covering_type)
     try:
         await async_write_and_verify_attrs(
             cluster,
@@ -694,9 +677,20 @@ async def _calibration_phase_1_enter_mode(
             manufacturer=UBISYS_MANUFACTURER_CODE,
         )
     except Exception as err:
-        raise HomeAssistantError(f"Failed to set window_covering_type: {err}") from err
+        raise HomeAssistantError(f"Failed to set WindowCoveringType: {err}") from err
 
     await asyncio.sleep(SETTLE_TIME)
+
+    # Step 2: Write initial limit values (manufacturer-specific)
+    _LOGGER.debug("Step 2: Writing initial calibration limits")
+    await _prepare_calibration_limits(cluster)
+    await asyncio.sleep(SETTLE_TIME)
+
+    # Step 3: Enter calibration mode (STANDARD attribute)
+    _LOGGER.debug("Step 3: Entering calibration mode (Mode=0x02)")
+    await _enter_calibration_mode(cluster)
+    await asyncio.sleep(SETTLE_TIME)
+
     kv(
         _LOGGER,
         logging.DEBUG,
@@ -1309,58 +1303,105 @@ async def _perform_calibration(
         raise
 
 
+async def _prepare_calibration_limits(cluster: Cluster) -> None:
+    """Write initial limit values (Official Procedure Step 2).
+
+    Reference: Ubisys J1 Technical Reference, Section 7.2.5.1, Step 2
+
+    This step ensures clean calibration by:
+    1. Setting expected physical range (0-240cm lift, 0-90° tilt)
+    2. Marking transition/total steps as invalid (0xFFFF)
+
+    Why This Matters:
+    - First calibration: TotalSteps already 0xFFFF (no-op, but harmless)
+    - Re-calibration: Resets device to uncalibrated state
+    - Official procedure: Explicitly required in documentation
+
+    We include this for:
+    - Robustness (handles re-calibration correctly)
+    - Compliance (follows official procedure exactly)
+    - Safety (explicit state reset prevents confusion)
+
+    Args:
+        cluster: WindowCovering cluster for attribute writes
+
+    Raises:
+        HomeAssistantError: If attribute write fails
+    """
+    try:
+        await async_write_and_verify_attrs(
+            cluster,
+            {
+                # Physical limits (standard values from official docs)
+                UBISYS_ATTR_INSTALLED_OPEN_LIMIT_LIFT: 0x0000,     # 0 cm
+                UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_LIFT: 0x00F0,   # 240 cm
+                UBISYS_ATTR_INSTALLED_OPEN_LIMIT_TILT: 0x0000,     # 0°
+                UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_TILT: 0x0384,   # 90° (900 tenths)
+
+                # Mark as uncalibrated
+                UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS: 0xFFFF,
+                UBISYS_ATTR_TOTAL_STEPS: 0xFFFF,
+                0x1003: 0xFFFF,  # LiftToTiltTransitionSteps2
+                0x1004: 0xFFFF,  # TotalSteps2
+            },
+            manufacturer=UBISYS_MANUFACTURER_CODE,
+        )
+        _LOGGER.debug("✓ Wrote initial calibration limits")
+    except Exception as err:
+        raise HomeAssistantError(f"Failed to write initial calibration limits: {err}") from err
+
+
 async def _enter_calibration_mode(cluster: Cluster) -> None:
-    """Enter calibration mode by writing mode attribute.
+    """Enter calibration mode (Official Procedure Step 3).
 
-    Writes the calibration mode attribute (0x0017) with value 0x02 to enter
-    the special calibration mode.
+    Reference: Ubisys J1 Technical Reference, Section 7.2.5.1, Step 3
+    "Write attribute 0x0017 (Mode) = 0x02"
 
-    What This Does:
+    CRITICAL: The Mode attribute (0x0017) is a STANDARD ZCL attribute in the
+    WindowCovering cluster, NOT a manufacturer-specific attribute. It must be
+    accessed WITHOUT the manufacturer code parameter.
 
-    Sets manufacturer-specific attribute 0x0017 = 0x02, which tells the device:
-        "I'm about to calibrate you. Start counting motor steps and prepare
-         to calculate total_steps when I move you from top to bottom."
+    In calibration mode, the device:
+    - Counts motor steps during movement
+    - Automatically detects physical limits via current sensing
+    - Calculates TotalSteps when full range traversed
+    - Updates OperationalStatus in real-time (position attribute does NOT update)
 
     Args:
         cluster: WindowCovering cluster for attribute write
 
     Raises:
-        HomeAssistantError: If attribute write fails (Zigbee communication issue)
+        HomeAssistantError: If attribute write fails
 
     See Also:
-        - _exit_calibration_mode(): Reverses this (mode=0x00)
-        - _calibration_phase_1_enter_mode(): Uses this helper
+        - _exit_calibration_mode(): Returns to normal mode (mode=0x00)
+        - _calibration_phase_1_prepare(): Uses this helper
     """
     try:
         await async_write_and_verify_attrs(
             cluster,
-            {CALIBRATION_MODE_ATTR: CALIBRATION_MODE_ENTER},
-            manufacturer=UBISYS_MANUFACTURER_CODE,
+            {MODE_ATTR: MODE_CALIBRATION}
+            # NO manufacturer parameter - MODE_ATTR is a STANDARD ZCL attribute!
         )
-        _LOGGER.debug("Entered calibration mode (mode=0x02) - verified")
+        _LOGGER.debug("✓ Entered calibration mode (Mode=0x02) - verified")
     except Exception as err:
         raise HomeAssistantError(f"Failed to enter calibration mode: {err}") from err
 
 
 async def _exit_calibration_mode(cluster: Cluster) -> None:
-    """Exit calibration mode by writing mode attribute.
+    """Exit calibration mode (Official Procedure Step 9).
 
-    Writes the calibration mode attribute (0x0017) with value 0x00 to return
-    the device to normal operation mode.
+    Reference: Ubisys J1 Technical Reference, Section 7.2.5.1, Step 9
+    "Clear bit #1 in Mode attribute: Write 0x0017 = 0x00"
 
-    What This Does:
-
-    Sets manufacturer-specific attribute 0x0017 = 0x00, which tells the device:
-        "Calibration complete. Use the total_steps you calculated for normal
-         position control operations."
+    CRITICAL: The Mode attribute (0x0017) is a STANDARD ZCL attribute, NOT
+    manufacturer-specific. Must be accessed WITHOUT manufacturer code.
 
     When This Is Called:
-
         1. End of successful calibration (Phase 5)
         2. During error cleanup (if calibration fails midway)
 
     Why Cleanup Matters:
-
     If device is left in calibration mode:
         - Normal position commands may not work correctly
         - User must power cycle device to recover
@@ -1375,16 +1416,16 @@ async def _exit_calibration_mode(cluster: Cluster) -> None:
         HomeAssistantError: If attribute write fails
 
     See Also:
-        - _enter_calibration_mode(): Sets mode=0x02
+        - _enter_calibration_mode(): Enters calibration mode (mode=0x02)
         - _calibration_phase_5_finalize(): Normal exit path
     """
     try:
         await async_write_and_verify_attrs(
             cluster,
-            {CALIBRATION_MODE_ATTR: CALIBRATION_MODE_EXIT},
-            manufacturer=UBISYS_MANUFACTURER_CODE,
+            {MODE_ATTR: MODE_NORMAL}
+            # NO manufacturer parameter - MODE_ATTR is a STANDARD ZCL attribute!
         )
-        _LOGGER.debug("Exited calibration mode (mode=0x00) - verified")
+        _LOGGER.debug("✓ Exited calibration mode (Mode=0x00) - verified")
     except Exception as err:
         raise HomeAssistantError(f"Failed to exit calibration mode: {err}") from err
 

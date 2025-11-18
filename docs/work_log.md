@@ -4,6 +4,67 @@ This log tracks meaningful development work on the Ubisys integration.
 
 ## 2025-11-18
 
+### CRITICAL: Mode Attribute Bug Fix - Standard vs Manufacturer-Specific (v1.3.7.7)
+
+**Context**: v1.3.7.6 was released with a complete calibration rewrite (OperationalStatus monitoring), but immediately failed in production with `UNSUPPORTED_ATTRIBUTE (134)` error when trying to enter calibration mode.
+
+**Root Cause - Simple Parameter Bug**: The Mode attribute (0x0017) is a **STANDARD ZCL attribute**, but our code was writing it **with manufacturer code** (0x10F2), making ZHA try to access the non-existent `0x10F2:0x0017`.
+
+**The Discovery Process**:
+
+1. User tested v1.3.7.6 and got:
+   ```
+   Write_Attributes_rsp(status_records=[WriteAttributesStatusRecord(status=<Status.UNSUPPORTED_ATTRIBUTE: 134>, attrid=0x0017)])
+   ```
+
+2. Initial hypothesis: "Device doesn't support calibration mode at all, we should remove mode entry/exit"
+
+3. **Breakthrough**: Read official Ubisys J1 Technical Reference, Section 7.2.5.1:
+   - Line 228: Mode (0x0017) listed under "Window Covering Cluster - Standard Attributes"
+   - Line 230: Manufacturer-specific section starts with different attributes (0x10F2:0x0000-0x1007)
+   - Step 3: "Write attribute 0x0017 (Mode) = 0x02" (no manufacturer code mentioned)
+
+4. **Root cause identified**: We were accessing the WRONG NAMESPACE!
+   - Our code: `await async_write_and_verify_attrs(cluster, {0x0017: 0x02}, manufacturer=0x10F2)`
+   - ZHA tried to access: `0x10F2:0x0017` (manufacturer-specific namespace)
+   - Device correctly returned: "That attribute doesn't exist in my manufacturer namespace"
+   - Correct access: `await async_write_and_verify_attrs(cluster, {0x0017: 0x02})` (NO manufacturer parameter)
+
+**The Fix**:
+
+1. **Removed manufacturer code** from Mode attribute writes:
+   - `_enter_calibration_mode()`: Write 0x0017 WITHOUT manufacturer parameter
+   - `_exit_calibration_mode()`: Write 0x0017 WITHOUT manufacturer parameter
+
+2. **Added Step 2** from official procedure (missing in v1.3.7.6):
+   - New `_prepare_calibration_limits()` function
+   - Writes initial physical limits (0-240cm, 0-90°)
+   - Marks TotalSteps=0xFFFF to signal uncalibrated state
+   - Critical for re-calibration scenarios
+
+3. **Architecture improvements** for maintainability:
+   - Added clear constants: `MODE_ATTR`, `MODE_CALIBRATION`, `MODE_NORMAL`
+   - Added limit constants: `UBISYS_ATTR_INSTALLED_*_LIMIT_*`
+   - Comprehensive documentation explaining standard vs manufacturer-specific attributes
+   - Removed old constant names: `CALIBRATION_MODE_ATTR`, `CALIBRATION_MODE_ENTER`, `CALIBRATION_MODE_EXIT`
+
+**Key Lesson**: Attribute namespace matters! Standard ZCL attributes (0x0000-0x00FF range) must be accessed WITHOUT manufacturer code. Manufacturer-specific attributes (0x10F2:0x0000+) require the manufacturer code parameter.
+
+**Files Modified**:
+- `custom_components/ubisys/const.py`: Added Mode constants, limit attributes, removed old names
+- `custom_components/ubisys/j1_calibration.py`: Fixed mode functions, added Step 2, updated Phase 1
+- `tests/test_j1_calibration.py`: Updated imports to use new constant names
+- `custom_components/ubisys/manifest.json`: v1.3.7.7
+- `CHANGELOG.md`: Comprehensive v1.3.7.7 entry
+
+**Testing**: All 81 tests passing. Coverage: 52%.
+
+**Impact**: This simple one-parameter fix should finally allow J1 calibration to work on HA 2025.11+. The v1.3.7.6 architecture (OperationalStatus monitoring, auto-stop detection) was correct; we just had the wrong parameter for Mode attribute access.
+
+---
+
+## 2025-11-18
+
 ### MAJOR: Calibration Rewrite - Implemented Official Ubisys Procedure (v1.3.7.6)
 
 **Context**: After 5 emergency hotfixes (v1.3.7.1-7.5) fixing HA 2025.11+ API compatibility, calibration still failed with total_steps=0xFFFF. Deep analysis revealed the calibration logic itself was fundamentally incompatible with how the Ubisys J1 actually works.

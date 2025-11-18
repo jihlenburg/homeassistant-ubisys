@@ -8,6 +8,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.7.7] - 2025-11-18
+
+### Fixed
+- **CRITICAL**: Fixed Mode attribute (0x0017) access - it's STANDARD ZCL, not manufacturer-specific!
+  - v1.3.7.6 was writing with manufacturer code 0x10F2, but 0x0017 is a standard attribute
+  - Device correctly returned UNSUPPORTED_ATTRIBUTE (134) because 0x10F2:0x0017 doesn't exist
+  - Mode attribute must be accessed WITHOUT manufacturer parameter
+  - Fixed `_enter_calibration_mode()` and `_exit_calibration_mode()` functions
+
+### Added
+- **Official Procedure Step 2**: Write initial calibration limits before entering mode
+  - Added `_prepare_calibration_limits()` function
+  - Writes physical limits (0-240cm lift, 0-90° tilt) per official documentation
+  - Marks TotalSteps/transition steps as 0xFFFF (uncalibrated) for clean calibration
+  - Required for re-calibration scenarios (resets device to uncalibrated state)
+  - Reference: Ubisys J1 Technical Reference, Section 7.2.5.1, Step 2
+
+### Changed
+- **Architecture improvements** for maintainability:
+  - Added clear constants: `MODE_ATTR`, `MODE_CALIBRATION`, `MODE_NORMAL`
+  - Added limit attribute constants: `UBISYS_ATTR_INSTALLED_*_LIMIT_*`
+  - Updated Phase 1 to follow official 3-step procedure (WindowCoveringType → Limits → Mode)
+  - Comprehensive documentation explaining standard vs manufacturer-specific attributes
+
+### Technical Details
+According to official Ubisys documentation (line 228 of Technical Reference):
+- Attribute 0x0017 (Mode) is listed under "Window Covering Cluster - Standard Attributes"
+- NOT under "Manufacturer-Specific Attributes (Cluster 0x10F2)" (line 230)
+- This is why our code was failing - we were accessing the wrong namespace!
+
+**Correct Attribute Access:**
+- Standard attributes (like 0x0017 Mode): Write WITHOUT manufacturer code
+- Manufacturer attributes (like 0x10F2:0x1002 TotalSteps): Write WITH manufacturer code 0x10F2
+
+### Testing
+- All 81 tests passing
+- Coverage improved from 22% → 52% (test mock enhancements)
+- Updated test imports to use new constant names
+
+### Why v1.3.7.6 Failed
+The v1.3.7.6 rewrite was architecturally correct (OperationalStatus monitoring, auto-stop detection), but had a simple parameter bug: passing `manufacturer=0x10F2` when writing the standard Mode attribute. This version fixes that critical bug and adds the missing Step 2 from the official procedure.
+
+
 ## [1.3.7.6] - 2025-11-18
 
 ### Fixed

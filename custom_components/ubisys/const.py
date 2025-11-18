@@ -149,10 +149,19 @@ ATTR_WINDOW_COVERING_TYPE: Final = 0x0000  # Window covering type attribute
 ATTR_CURRENT_POSITION_LIFT: Final = 0x0008  # Current lift position
 ATTR_CURRENT_POSITION_TILT: Final = 0x0009  # Current tilt position
 
-# Calibration mode attribute (J1-specific manufacturer attribute)
-CALIBRATION_MODE_ATTR: Final = 0x0017  # Mode attribute in WindowCovering cluster
-CALIBRATION_MODE_ENTER: Final = 0x02  # Value to enter calibration mode
-CALIBRATION_MODE_EXIT: Final = 0x00  # Value to exit calibration mode
+# Calibration Mode (STANDARD ZCL attribute - NOT manufacturer-specific!)
+# Reference: Ubisys J1 Technical Reference, Section 7.2.5.1
+# This attribute is accessed WITHOUT manufacturer code
+MODE_ATTR: Final = 0x0017  # Mode bitmap (calibration, maintenance, reverse, feedback)
+MODE_CALIBRATION: Final = 0x02  # Bit 1: Calibration mode active
+MODE_NORMAL: Final = 0x00  # Normal operation mode
+
+# Physical Limit Attributes (Manufacturer-specific writable versions)
+# These are manufacturer-specific (0x10F2:0x0010-0x0013)
+UBISYS_ATTR_INSTALLED_OPEN_LIMIT_LIFT: Final = 0x0010  # Open limit for lift (cm)
+UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_LIFT: Final = 0x0011  # Closed limit for lift (cm)
+UBISYS_ATTR_INSTALLED_OPEN_LIMIT_TILT: Final = 0x0012  # Open limit for tilt (0.1°)
+UBISYS_ATTR_INSTALLED_CLOSED_LIMIT_TILT: Final = 0x0013  # Closed limit for tilt (0.1°)
 
 # Calibration timing constants (used by j1_calibration.py)
 STALL_DETECTION_INTERVAL: Final = 0.5  # Check position every 0.5 seconds

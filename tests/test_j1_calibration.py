@@ -11,9 +11,10 @@ from homeassistant.core import ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.ubisys.const import (
-    CALIBRATION_MODE_ENTER,
-    CALIBRATION_MODE_EXIT,
     DOMAIN,
+    MODE_ATTR,
+    MODE_CALIBRATION,
+    MODE_NORMAL,
 )
 from custom_components.ubisys.j1_calibration import (
     _enter_calibration_mode,
@@ -80,7 +81,7 @@ async def test_enter_calibration_mode(mock_window_covering_cluster):
     cluster.write_attributes.assert_called_once()
     call_args = cluster.write_attributes.call_args[0][0]
     assert 0x0017 in call_args  # Calibration mode attribute (decimal 23)
-    assert call_args[0x0017] == CALIBRATION_MODE_ENTER
+    assert call_args[MODE_ATTR] == MODE_CALIBRATION
 
 
 @pytest.mark.asyncio
@@ -94,7 +95,7 @@ async def test_exit_calibration_mode(mock_window_covering_cluster):
     cluster.write_attributes.assert_called_once()
     call_args = cluster.write_attributes.call_args[0][0]
     assert 0x0017 in call_args  # Calibration mode attribute (decimal 23)
-    assert call_args[0x0017] == CALIBRATION_MODE_EXIT
+    assert call_args[MODE_ATTR] == MODE_NORMAL
 
 
 # =============================================================================
