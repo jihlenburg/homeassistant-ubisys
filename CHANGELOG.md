@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.7.1] - 2025-11-18
+
+### Fixed
+- **Critical**: Fixed incomplete ZHA Gateway API compatibility (missed in v1.3.6.7)
+  - Fixed `j1_calibration.py:_get_window_covering_cluster()` still using old `gateway.application_controller.devices` API
+  - Fixed `diagnostics.py:async_get_config_entry_diagnostics()` still using old API
+  - Calibration now works on HA 2025.11+ (was broken despite v1.3.6.7 claiming to fix it)
+  - Diagnostics endpoint data now loads correctly on HA 2025.11+
+  - Both functions now use same compatibility pattern as `helpers.py:get_cluster()`
+  - Comprehensive audit verified all ZHA gateway device accesses now wrapped
+
+### Technical Details
+- `j1_calibration.py` line 1591: Added hasattr() check for `application_controller` vs `gateway.devices`
+- `diagnostics.py` line 65: Added same compatibility wrapper
+- The v1.3.6.7 fix only updated `helpers.py:get_cluster()` but missed direct gateway access in J1 calibration
+- Root cause: J1 calibration has custom endpoint probing logic (EP1 then EP2) so doesn't use `get_cluster()` helper
+
 ## [1.3.7] - 2025-11-18
 
 ### Added

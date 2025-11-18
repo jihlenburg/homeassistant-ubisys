@@ -1588,7 +1588,22 @@ async def _get_window_covering_cluster(
                 f"Invalid device IEEE address: {device_ieee}"
             ) from err
 
-        device = gateway.application_controller.devices.get(device_eui64)
+        # Handle both old API (gateway.application_controller.devices) and new API (gateway.gateway.devices)
+        if hasattr(gateway, "application_controller"):
+            # Old API: direct gateway object
+            devices = gateway.application_controller.devices
+        elif hasattr(gateway, "gateway"):
+            # New API: ZHAGatewayProxy wrapping gateway
+            devices = gateway.gateway.devices
+        else:
+            _LOGGER.error(
+                "Gateway object has no known device access pattern. Type: %s, Attributes: %s",
+                type(gateway).__name__,
+                [attr for attr in dir(gateway) if not attr.startswith("_")][:20],
+            )
+            return None
+
+        device = devices.get(device_eui64)
 
         if not device:
             _LOGGER.error("Device not found in ZHA gateway: %s", device_ieee)

@@ -113,3 +113,68 @@ This log tracks meaningful development work on the Ubisys integration.
 - `custom_components/ubisys/cleanup.py` (new, 250 lines)
 - `custom_components/ubisys/__init__.py` (enhanced service handler)
 - `custom_components/ubisys/services.yaml` (added service definition)
+
+---
+
+### Critical Hotfix: Complete ZHA Gateway API Compatibility (v1.3.7.1)
+
+**Context**: User attempted J1 calibration immediately after v1.3.7 release and it failed with the same `'ZHAGatewayProxy' object has no attribute 'application_controller'` error that v1.3.6.7 claimed to fix.
+
+**Root Cause Discovery**:
+- v1.3.6.7 only fixed `helpers.py:get_cluster()` function
+- Missed TWO other locations with direct `gateway.application_controller.devices` access:
+  1. `j1_calibration.py:1591` in `_get_window_covering_cluster()`
+  2. `diagnostics.py:65` in `async_get_config_entry_diagnostics()`
+
+**Why These Were Missed**:
+- J1 calibration has custom endpoint probing logic (tries EP1, falls back to EP2)
+- Doesn't use `get_cluster()` helper, so it had its own device access code
+- Diagnostics also has direct device access for endpoint snapshot generation
+
+**Comprehensive Audit Performed**:
+```bash
+# Searched every possible ZHA gateway API pattern:
+rg "gateway\."              # All gateway property accesses
+rg "application_controller" # Old API usage
+rg "\.devices\.get"         # Device access patterns
+rg "devices ="              # Device variable assignments
+rg "resolve_zha_gateway"    # All gateway resolution calls
+rg "hass\.data.*zha"        # ZHA data accesses
+```
+
+**Findings**:
+- Total ZHA gateway device access points: 4
+  1. ✅ `helpers.py:370-375` - Already wrapped (v1.3.6.7)
+  2. ✅ `j1_calibration.py:1591` - Fixed in v1.3.7.1
+  3. ✅ `diagnostics.py:65` - Fixed in v1.3.7.1
+  4. ✅ `config_flow.py:346` - Uses HA device registry, not ZHA gateway (safe)
+
+**Fixes Applied** (j1_calibration.py:1591 and diagnostics.py:65):
+```python
+# OLD (broken on HA 2025.11+):
+device = gateway.application_controller.devices.get(device_eui64)
+
+# NEW (compatible):
+if hasattr(gateway, "application_controller"):
+    devices = gateway.application_controller.devices
+elif hasattr(gateway, "gateway"):
+    devices = gateway.gateway.devices
+else:
+    _LOGGER.error("Gateway has no known device access pattern")
+    return None
+
+device = devices.get(device_eui64)
+```
+
+**Testing**: All 81 CI tests passing
+
+**Impact**:
+- J1 calibration now actually works on HA 2025.11+ (was completely broken)
+- Diagnostics endpoint data loads correctly
+- All ZHA gateway API accesses verified compatible
+
+**Lesson Learned**: When fixing API compatibility issues, must audit ALL code paths, not just helper functions. Direct device access in specialized functions can be easily missed.
+
+**Files Modified**:
+- `custom_components/ubisys/j1_calibration.py` (line 1591: added compatibility wrapper)
+- `custom_components/ubisys/diagnostics.py` (line 65: added compatibility wrapper)

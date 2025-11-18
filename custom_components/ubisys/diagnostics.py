@@ -62,7 +62,22 @@ async def async_get_config_entry_diagnostics(
             ieee = entry.data.get("device_ieee")
             if ieee and gateway:
                 eui = EUI64.convert(ieee)
-                device = gateway.application_controller.devices.get(eui)
+
+                # Handle both old API (gateway.application_controller.devices) and new API (gateway.gateway.devices)
+                if hasattr(gateway, "application_controller"):
+                    # Old API: direct gateway object
+                    devices = gateway.application_controller.devices
+                elif hasattr(gateway, "gateway"):
+                    # New API: ZHAGatewayProxy wrapping gateway
+                    devices = gateway.gateway.devices
+                else:
+                    _LOGGER.debug(
+                        "Diagnostics: Gateway has no known device access pattern. Type: %s",
+                        type(gateway).__name__,
+                    )
+                    devices = None
+
+                device = devices.get(eui) if devices else None
                 if device:
                     eps: dict[int, Any] = {}
                     for ep_id, ep in device.endpoints.items():
