@@ -1461,12 +1461,12 @@ async def _prepare_calibration_limits(cluster: Cluster) -> None:
     """
     try:
         # First, check if device is already calibrated
-        result = await async_read_attrs(
-            cluster,
+        read_result = await cluster.read_attributes(
             [UBISYS_ATTR_TOTAL_STEPS],
             manufacturer=UBISYS_MANUFACTURER_CODE,
         )
-        current_total_steps = result.get(UBISYS_ATTR_TOTAL_STEPS, 0xFFFF)
+        # read_attributes returns tuple: (success_dict, failure_dict)
+        current_total_steps = read_result[0].get(UBISYS_ATTR_TOTAL_STEPS, 0xFFFF)
 
         is_already_calibrated = current_total_steps != 0xFFFF
 

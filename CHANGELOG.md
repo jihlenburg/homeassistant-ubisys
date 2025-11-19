@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.8.2] - 2025-11-18
+
+### Fixed
+- **Fixed undefined function error in v1.3.8.1**
+  - Used non-existent `async_read_attrs()` function
+  - Changed to use `cluster.read_attributes()` directly
+  - Emergency hotfix for v1.3.8.1 which broke calibration entirely
+
+
 ## [1.3.8.1] - 2025-11-18
 
 ### Fixed
