@@ -56,6 +56,7 @@ from .const import (
     UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS,
     UBISYS_ATTR_STARTUP_STEPS,
     UBISYS_ATTR_TOTAL_STEPS,
+    UBISYS_ATTR_TOTAL_STEPS2,
     UBISYS_ATTR_TURNAROUND_GUARD_TIME,
     UBISYS_MANUFACTURER_CODE,
 )
@@ -385,25 +386,33 @@ async def _async_calibrate_single_entity(
         )
         calibration_start = time.time()
         try:
-            await _perform_calibration(hass, zha_entity_id, device_ieee, shade_type)
+            # Capture calibration results for diagnostics
+            total_steps, total_steps2 = await _perform_calibration(
+                hass, zha_entity_id, device_ieee, shade_type
+            )
             elapsed = time.time() - calibration_start
             _LOGGER.info(
                 "Calibration completed successfully for %s in %.1f seconds",
                 entity_id,
                 elapsed,
             )
-            _record_calibration_history(
-                hass,
-                device_ieee,
-                {
-                    "entity_id": entity_id,
-                    "device_ieee": device_ieee,
-                    "shade_type": shade_type,
-                    "duration_s": round(elapsed, 1),
-                    "success": True,
-                    "ts": time.time(),
-                },
-            )
+
+            # Build calibration history with measured steps
+            history_data = {
+                "entity_id": entity_id,
+                "device_ieee": device_ieee,
+                "shade_type": shade_type,
+                "duration_s": round(elapsed, 1),
+                "success": True,
+                "ts": time.time(),
+                "total_steps_down": total_steps,
+            }
+            if total_steps2 is not None and total_steps2 != 0xFFFF:
+                history_data["total_steps_up"] = total_steps2
+                asymmetry_pct = abs(total_steps - total_steps2) / total_steps * 100
+                history_data["asymmetry_pct"] = round(asymmetry_pct, 1)
+
+            _record_calibration_history(hass, device_ieee, history_data)
             try:
                 hass.components.persistent_notification.create(
                     title="Ubisys Calibration",
@@ -1368,7 +1377,7 @@ async def _perform_calibration(
     zha_entity_id: str,
     device_ieee: str,
     shade_type: str,
-) -> None:
+) -> tuple[int, int | None]:
     """Orchestrate complete 5-phase calibration sequence.
 
     This is the main calibration orchestrator that coordinates all phases.
@@ -1541,6 +1550,99 @@ async def _perform_calibration(
             raise HomeAssistantError(
                 "Calibration exceeded total timeout during Phase 4"
             )
+
+        # ═══════════════════════════════════════════════════════════════════════
+        # Official Procedure Step 7 Verification: Read TotalSteps2 (0x1004)
+        # ═══════════════════════════════════════════════════════════════════════
+        #
+        # Per Ubisys J1 Technical Reference (line 311):
+        # "Attributes 0x10F2:0x1002 AND 0x10F2:0x1004 now contain measured values"
+        #
+        # TotalSteps (0x1002):  Steps for DOWN movement (open → closed)
+        #                       ✅ Read after Phase 3 (finding bottom)
+        #
+        # TotalSteps2 (0x1004): Steps for UP movement (closed → open)
+        #                       ✅ Read here after Phase 4 (returning to top)
+        #
+        # WHY BOTH VALUES MATTER:
+        # The J1 motor may have slightly different step counts in each direction:
+        # - Mechanical friction asymmetry
+        # - Gravity assistance (down) vs resistance (up)
+        # - Motor characteristics (easier one direction)
+        # - Blind weight distribution
+        #
+        # By measuring both directions, the device accounts for asymmetry and
+        # improves positioning accuracy. Significant asymmetry (>10%) may indicate
+        # mechanical issues that need attention.
+        #
+        # This read is NON-FATAL - if it fails, we log a warning but continue
+        # calibration since TotalSteps (0x1002) is the primary positioning value.
+
+        total_steps2 = None
+        try:
+            _LOGGER.debug(
+                "Reading TotalSteps2 (0x1004) for reverse-direction verification..."
+            )
+            read_result = await cluster.read_attributes(
+                [UBISYS_ATTR_TOTAL_STEPS2],
+                manufacturer=UBISYS_MANUFACTURER_CODE,
+            )
+
+            # Handle tuple response format from zigpy
+            if isinstance(read_result, tuple) and len(read_result) >= 1:
+                read_result = read_result[0]
+
+            total_steps2 = read_result.get(UBISYS_ATTR_TOTAL_STEPS2)
+
+            if total_steps2 is None or total_steps2 == 0xFFFF:
+                _LOGGER.warning(
+                    "TotalSteps2 (reverse direction) not calibrated: %s. "
+                    "Phase 4 may not have completed correctly. This is non-fatal, "
+                    "but positioning accuracy may be reduced.",
+                    "0xFFFF (uncalibrated)" if total_steps2 == 0xFFFF else "None"
+                )
+            else:
+                # Calculate asymmetry between forward and reverse directions
+                difference_pct = abs(total_steps - total_steps2) / total_steps * 100
+
+                kv(
+                    _LOGGER,
+                    logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+                    "Calibration measured both directions",
+                    total_steps_down=total_steps,
+                    total_steps_up=total_steps2,
+                    asymmetry_pct=round(difference_pct, 1),
+                )
+
+                # Warn if significant asymmetry detected (>10% difference)
+                if difference_pct > 10:
+                    _LOGGER.warning(
+                        "Significant asymmetry detected: %.1f%% difference between "
+                        "down (%d steps) and up (%d steps) directions. This may indicate: "
+                        "(1) Mechanical friction issues, (2) Binding in tracks, "
+                        "(3) Motor wear, or (4) Uneven weight distribution. "
+                        "Consider inspecting the blind mechanism.",
+                        difference_pct,
+                        total_steps,
+                        total_steps2
+                    )
+                elif difference_pct > 5:
+                    _LOGGER.info(
+                        "Moderate asymmetry detected: %.1f%% difference between "
+                        "directions (down: %d, up: %d). This is within acceptable "
+                        "range but worth noting.",
+                        difference_pct,
+                        total_steps,
+                        total_steps2
+                    )
+        except Exception as err:
+            _LOGGER.warning(
+                "Failed to read TotalSteps2 (reverse direction): %s. "
+                "This is non-fatal - calibration will continue using TotalSteps "
+                "(forward direction) only. Positioning may be less accurate.",
+                err
+            )
+
         await _update_calibration_notification(
             hass,
             zha_entity_id,
@@ -1556,6 +1658,14 @@ async def _perform_calibration(
         await _calibration_phase_5_finalize(cluster, shade_type, total_steps, is_recalibration)
 
         # Success! Dismiss notification with success message
+        # Build calibration results message with both TotalSteps values
+        steps_message = f"**Down movement:** {total_steps} steps"
+        if total_steps2 is not None and total_steps2 != 0xFFFF:
+            difference_pct = abs(total_steps - total_steps2) / total_steps * 100
+            steps_message += f"\n**Up movement:** {total_steps2} steps"
+            if difference_pct > 5:
+                steps_message += f"\n**Asymmetry:** {difference_pct:.1f}%"
+
         await _update_calibration_notification(
             hass,
             zha_entity_id,
@@ -1567,17 +1677,27 @@ async def _perform_calibration(
             "✅ **Phase 3:** Bottom limit found\n"
             "✅ **Phase 4:** Verification complete\n"
             "✅ **Phase 5:** Finalized\n\n"
-            f"Total steps measured: {total_steps}\n\n"
+            f"{steps_message}\n\n"
             "Your window covering is now calibrated and ready to use!",
         )
 
         if is_verbose_info_logging(hass):
+            banner_data = {
+                "device_ieee": device_ieee,
+                "total_steps_down": total_steps,
+            }
+            if total_steps2 is not None and total_steps2 != 0xFFFF:
+                banner_data["total_steps_up"] = total_steps2
+                difference_pct = abs(total_steps - total_steps2) / total_steps * 100
+                banner_data["asymmetry_pct"] = f"{difference_pct:.1f}%"
             info_banner(
                 _LOGGER,
                 "J1 Calibration Complete",
-                device_ieee=device_ieee,
-                total_steps=total_steps,
+                **banner_data
             )
+
+        # Return calibration results for diagnostics/history
+        return (total_steps, total_steps2)
 
     except Exception as err:
         # Update notification with error
