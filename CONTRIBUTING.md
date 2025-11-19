@@ -397,16 +397,189 @@ Successfully imported custom quirk ubisys_j1
 # Filter for: ubisys
 ```
 
+## 🌿 Branching Strategy
+
+### Overview
+
+```
+feature/xxx ──┬──► develop ──────────────► main
+feature/yyy ──┤      │                      │
+feature/zzz ──┘      │                      │
+                     │                      │
+                [Dev Testing]          [Releases]
+                [CI on every push]     [Tags: vX.Y.Z]
+                [Beta tags]            [HACS tracks]
+```
+
+### Branches
+
+| Branch | Purpose | Who Uses It |
+|--------|---------|-------------|
+| **`develop`** | Active development, may include WIP | Developers, testers |
+| **`main`** | Production releases only | End users via HACS |
+
+### Development Workflow
+
+#### 1. Create Feature Branch
+
+```bash
+git checkout develop
+git pull origin develop
+git checkout -b feature/new-calibration-ui
+```
+
+#### 2. Work and Commit
+
+```bash
+# Make changes...
+git add -A && git commit -m "feat: add calibration progress UI"
+git push -u origin feature/new-calibration-ui
+```
+
+#### 3. Create Pull Request
+
+```bash
+gh pr create --base develop --title "feat: calibration progress UI"
+```
+
+#### 4. After CI Passes
+
+Merge to develop via GitHub UI or CLI.
+
+#### 5. Test on Real Hardware
+
+Point your HA development instance to the develop branch and test with real devices.
+
+### Beta Releases
+
+Create pre-release tags on develop for testers:
+
+```bash
+# Ensure develop is stable
+git checkout develop
+git pull origin develop
+
+# Create beta tag
+git tag -a v1.1.0-beta.1 -m "Beta 1 for v1.1.0
+
+New Features:
+- Calibration progress UI
+- Improved error messages
+
+Known Issues:
+- None reported yet"
+
+# Push tag
+git push origin v1.1.0-beta.1
+
+# Create GitHub pre-release
+gh release create v1.1.0-beta.1 --prerelease --title "v1.1.0 Beta 1" --notes "Testing release for v1.1.0 features"
+```
+
+**Beta Version Naming:**
+- `v1.1.0-beta.1` - First beta
+- `v1.1.0-beta.2` - Second beta (after fixes)
+- `v1.1.0-rc.1` - Release candidate (feature complete)
+
+### Stable Releases
+
+Promote tested code from develop to main:
+
+```bash
+# 1. Ensure develop is stable and tested
+git checkout develop
+git pull origin develop
+make ci  # All checks must pass
+
+# 2. Switch to main and merge
+git checkout main
+git pull origin main
+git merge --squash develop
+
+# 3. Commit as release
+git commit -m "$(cat <<'EOF'
+Release v1.1.0
+
+## New Features
+- Calibration progress UI
+- Improved error messages
+
+## Bug Fixes
+- Fixed D1 phase mode edge case
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+
+# 4. Tag and push
+git tag -a v1.1.0 -m "Version 1.1.0"
+git push origin main --tags
+
+# 5. Create GitHub Release
+./scripts/create_release.sh v1.1.0
+
+# 6. Sync develop with main
+git checkout develop
+git merge main
+git push origin develop
+```
+
+### Installing Beta Versions
+
+#### For Testers
+
+**Option 1: HACS (Recommended)**
+
+1. Open HACS → Integrations → Ubisys
+2. Click ⋮ → Redownload
+3. Enable "Show beta versions"
+4. Select the beta version
+5. Restart Home Assistant
+
+**Option 2: Manual Installation**
+
+```bash
+cd ~/.homeassistant/custom_components
+rm -rf ubisys
+git clone -b develop https://github.com/jihlenburg/homeassistant-ubisys.git ubisys-temp
+mv ubisys-temp/custom_components/ubisys .
+rm -rf ubisys-temp
+```
+
+Then restart Home Assistant.
+
+#### Reporting Beta Issues
+
+When testing beta releases:
+
+1. Include version number: `v1.1.0-beta.1`
+2. Provide relevant logs
+3. Describe steps to reproduce
+4. Tag issue with `beta-feedback`
+
+### Branch Protection (Maintainers)
+
+Configure in GitHub Settings → Branches:
+
+**`main` branch:**
+- Require pull request before merging
+- Require status checks to pass
+- No force push
+- No deletions
+
+**`develop` branch:**
+- Require status checks to pass
+- Allow squash merge
+
 ## 📦 Release Process
 
-### Creating a Release
+### Creating a Stable Release
 
-1. Update `CHANGELOG.md` under `[Unreleased]` section
-2. Update `custom_components/ubisys/manifest.json` version
-3. Commit: `chore: bump version to X.Y.Z`
-4. Tag: `git tag -a vX.Y.Z -m "Release version X.Y.Z"`
-5. Push: `git push origin main vX.Y.Z`
-6. Create GitHub release: `./scripts/create_release.sh vX.Y.Z`
+See [Stable Releases](#stable-releases) above for the complete workflow.
+
+### Creating a Beta Release
+
+See [Beta Releases](#beta-releases) above for the complete workflow.
 
 ### Versioning
 
@@ -415,6 +588,11 @@ Follow [Semantic Versioning](https://semver.org/):
 - **MAJOR**: Breaking changes (API changes, removed features)
 - **MINOR**: New features (backward-compatible)
 - **PATCH**: Bug fixes (backward-compatible)
+
+**Pre-release Suffixes:**
+- `-beta.N` - Beta releases (feature testing)
+- `-rc.N` - Release candidates (final testing)
+- `-alpha.N` - Alpha releases (early development)
 
 ## 💡 How You Can Help
 

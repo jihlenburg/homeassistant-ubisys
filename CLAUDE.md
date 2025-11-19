@@ -63,6 +63,25 @@ These manuals provide detailed specifications including:
 
 Refer to these documents when implementing support for new devices or working with device-specific features.
 
+## Branching Strategy
+
+This project uses a two-branch model for development and releases:
+
+- **`develop`**: Active development, feature branches merge here, CI must pass, beta releases tagged here
+- **`main`**: Production releases only, squash merges from develop, each commit = version, HACS tracks this
+
+**Workflow:**
+1. Create feature branch from `develop`
+2. Work, push, create PR targeting `develop`
+3. After CI passes, merge to `develop`
+4. Test on real hardware
+5. When ready: squash merge `develop` → `main`, tag, create release
+
+**Beta releases:** Tag on develop (e.g., `v1.1.0-beta.1`), create GitHub pre-release.
+**Stable releases:** Squash merge to main, tag (e.g., `v1.1.0`), run `./scripts/create_release.sh`.
+
+See `CONTRIBUTING.md` for full workflow details.
+
 ## Architecture
 
 ### Three-Layer Design

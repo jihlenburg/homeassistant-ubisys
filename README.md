@@ -73,6 +73,18 @@
 **Other installation methods:** [Installation Guide](docs/installation.md)
 </details>
 
+<details>
+<summary><strong>Want to test beta features?</strong></summary>
+
+1. In HACS, go to the Ubisys integration
+2. Click **⋮** → **Redownload**
+3. Enable **"Show beta versions"**
+4. Select the beta version (e.g., `v1.1.0-beta.1`)
+5. **Restart Home Assistant**
+
+**Note:** Beta versions may contain bugs. Report issues with the `beta-feedback` tag.
+</details>
+
 ### 2. Pair Your Device with ZHA
 
 1. **Settings** → **Devices & Services** → **ZHA** → **Add Device**
