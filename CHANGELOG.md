@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.10.2] - 2025-11-19
+
+### Fixed
+- **CI Failures: Black formatting + Flake8 + Mypy violations**
+  - **Black:** Missing trailing commas in logger calls (5 locations)
+  - **Flake8:** Duplicate `_get_notification_id` function definition (F811)
+  - **Mypy:** Missing type annotations causing "Returning Any from function declared to return bool"
+
+### Root Cause
+All 5 recent commits (v1.3.8.4 through v1.3.10.1) failed GitHub Actions CI because local CI checks were not run before committing.
+
+**Why We Didn't Catch This Locally:**
+1. No pre-commit/pre-push git hooks configured
+2. `make ci` exists but must be run manually (we didn't run it)
+3. No enforcement mechanism to prevent pushing non-compliant code
+
+### Changes
+- Auto-fixed Black formatting violations (trailing commas)
+- Removed duplicate `_get_notification_id` function (kept documented version at line 87)
+- Added explicit type annotations: `current_total_steps: int` and `is_already_calibrated: bool`
+
+### Prevention (Implemented in v1.3.10.2)
+- Added pre-commit hook: Runs `make lint` before each commit (fast feedback)
+- Added pre-push hook: Runs `make ci` before each push (comprehensive validation)
+- Updated CLAUDE.md: Pre-commit checklist for code changes
+
+
 ## [1.3.10.1] - 2025-11-19
 
 ### Fixed

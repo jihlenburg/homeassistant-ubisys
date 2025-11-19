@@ -446,10 +446,6 @@ async def _async_calibrate_single_entity(
             raise
 
 
-def _get_notification_id(entity_id: str) -> str:
-    return f"ubisys_calibration_{entity_id}"
-
-
 async def _find_zha_cover_entity(hass: HomeAssistant, device_id: str) -> str | None:
     """Find the ZHA cover entity for a device.
 
@@ -1602,7 +1598,7 @@ async def _perform_calibration(
                     "TotalSteps2 (reverse direction) not calibrated: %s. "
                     "Phase 4 may not have completed correctly. This is non-fatal, "
                     "but positioning accuracy may be reduced.",
-                    "0xFFFF (uncalibrated)" if total_steps2 == 0xFFFF else "None"
+                    "0xFFFF (uncalibrated)" if total_steps2 == 0xFFFF else "None",
                 )
             else:
                 # Calculate asymmetry between forward and reverse directions
@@ -1627,7 +1623,7 @@ async def _perform_calibration(
                         "Consider inspecting the blind mechanism.",
                         difference_pct,
                         total_steps,
-                        total_steps2
+                        total_steps2,
                     )
                 elif difference_pct > 5:
                     _LOGGER.info(
@@ -1636,14 +1632,14 @@ async def _perform_calibration(
                         "range but worth noting.",
                         difference_pct,
                         total_steps,
-                        total_steps2
+                        total_steps2,
                     )
         except Exception as err:
             _LOGGER.warning(
                 "Failed to read TotalSteps2 (reverse direction): %s. "
                 "This is non-fatal - calibration will continue using TotalSteps "
                 "(forward direction) only. Positioning may be less accurate.",
-                err
+                err,
             )
 
         await _update_calibration_notification(
@@ -1658,7 +1654,9 @@ async def _perform_calibration(
             "**Phase 5:** Finalizing...",
         )
 
-        await _calibration_phase_5_finalize(cluster, shade_type, total_steps, is_recalibration)
+        await _calibration_phase_5_finalize(
+            cluster, shade_type, total_steps, is_recalibration
+        )
 
         # Success! Dismiss notification with success message
         # Build calibration results message with both TotalSteps values
@@ -1693,11 +1691,7 @@ async def _perform_calibration(
                 banner_data["total_steps_up"] = total_steps2
                 difference_pct = abs(total_steps - total_steps2) / total_steps * 100
                 banner_data["asymmetry_pct"] = f"{difference_pct:.1f}%"
-            info_banner(
-                _LOGGER,
-                "J1 Calibration Complete",
-                **banner_data
-            )
+            info_banner(_LOGGER, "J1 Calibration Complete", **banner_data)
 
         # Return calibration results for diagnostics/history
         return (total_steps, total_steps2)
@@ -1765,9 +1759,9 @@ async def _prepare_calibration_limits(cluster: Cluster) -> bool:
             manufacturer=UBISYS_MANUFACTURER_CODE,
         )
         # read_attributes returns tuple: (success_dict, failure_dict)
-        current_total_steps = read_result[0].get(UBISYS_ATTR_TOTAL_STEPS, 0xFFFF)
+        current_total_steps: int = read_result[0].get(UBISYS_ATTR_TOTAL_STEPS, 0xFFFF)
 
-        is_already_calibrated = current_total_steps != 0xFFFF
+        is_already_calibrated: bool = current_total_steps != 0xFFFF
 
         if is_already_calibrated:
             _LOGGER.info(
