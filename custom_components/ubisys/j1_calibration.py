@@ -1318,6 +1318,9 @@ async def _calibration_phase_5_finalize(
         "PHASE 5: Finalizing calibration",
     )
 
+    # Initialize tilt_steps to None (will be set only for first-time tilt-capable calibration)
+    tilt_steps = None
+
     # Step 13: Write + verify tilt transition steps (ONLY for tilt-capable blinds)
     # Per official Ubisys J1 Technical Reference Step 8:
     # "For tilt blinds, set 0x10F2:0x1001 and 0x10F2:0x1003 to lift-to-tilt transition times"
@@ -1368,7 +1371,7 @@ async def _calibration_phase_5_finalize(
     _LOGGER.debug(
         "✓ PHASE 5 Complete: Calibration finalized (total_steps=%s, tilt_steps=%s)",
         total_steps,
-        tilt_steps,
+        tilt_steps if tilt_steps is not None else "skipped",
     )
 
 

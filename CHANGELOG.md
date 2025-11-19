@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.10.1] - 2025-11-19
+
+### Fixed
+- **HOTFIX: UnboundLocalError in Phase 5 final log statement**
+  - Fixed crash at end of successful calibration when tilt_steps not written
+  - Error occurred when re-calibration skipped tilt steps write OR shade is lift-only (roller/cellular/vertical)
+  - Final debug log unconditionally referenced `tilt_steps` variable
+  - **Solution:** Initialize `tilt_steps = None` at function start, log shows "skipped" when not applicable
+  - **Impact:** Calibration would complete all phases successfully but crash at final log statement (line 1371)
+  - **Location:** `j1_calibration.py` `_calibration_phase_5_finalize()` function
+
+### Technical Details
+**Root Cause:**
+```python
+# Phase 5 has conditional branches:
+if not is_recalibration and shade_supports_tilt:
+    tilt_steps = 100  # Only assigned here
+else:
+    # tilt_steps never assigned - skip write
+    pass
+
+# Final log always references tilt_steps:
+_LOGGER.debug("Phase 5 complete (tilt_steps=%s)", tilt_steps)  # ← UnboundLocalError
+```
+
+**Fix:**
+- Initialize `tilt_steps = None` at start of Phase 5
+- Update final log: `tilt_steps if tilt_steps is not None else "skipped"`
+- Log now shows: `tilt_steps=100` for venetian, `tilt_steps=skipped` for roller/cellular/re-cal
+
+
 ## [1.3.10] - 2025-11-19
 
 ### Added
