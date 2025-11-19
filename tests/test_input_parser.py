@@ -1,14 +1,13 @@
-from typing import Any
-
 import pytest
 
 from custom_components.ubisys.input_parser import InputActionsParser, TransitionState
 
-syrupy: Any
 try:
-    import syrupy
+    import syrupy as _syrupy  # noqa: F401
+
+    HAS_SYRUPY = True
 except ImportError:
-    syrupy = None
+    HAS_SYRUPY = False
 
 
 def test_input_actions_parse_too_short():
@@ -49,7 +48,7 @@ def test_input_actions_parse_single_entry():
     assert a.command_id == 0x02
 
 
-if syrupy:
+if HAS_SYRUPY:
 
     def test_input_actions_snapshot(snapshot):
         """Snapshot test for complex input configuration."""
