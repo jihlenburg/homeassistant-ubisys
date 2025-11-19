@@ -745,7 +745,7 @@ async def _calibration_phase_1_enter_mode(
 
     # Step 2: Write initial limit values (manufacturer-specific)
     _LOGGER.debug("Step 2: Writing initial calibration limits")
-    await _prepare_calibration_limits(cluster)
+    is_recalibration = await _prepare_calibration_limits(cluster)
     await asyncio.sleep(SETTLE_TIME)
 
     # Step 3: Enter calibration mode (STANDARD attribute)
@@ -1124,6 +1124,7 @@ async def _calibration_phase_5_finalize(
     cluster: Cluster,
     shade_type: str,
     total_steps: int,
+    is_recalibration: bool = False,
 ) -> None:
     """PHASE 5: Write tilt steps and exit calibration mode.
 
@@ -1147,6 +1148,7 @@ async def _calibration_phase_5_finalize(
 
     Phase Sequence:
         Step 13: Write lift_to_tilt_transition_steps based on shade type
+                 (Skipped for re-calibration - device won't accept changes)
                  Wait SETTLE_TIME for device to accept
 
         Step 14: Write mode=0x00 to exit calibration mode
@@ -1164,6 +1166,7 @@ async def _calibration_phase_5_finalize(
         cluster: WindowCovering cluster for attribute writes
         shade_type: Shade type (determines tilt_steps value)
         total_steps: Total steps from Phase 3 (for logging only)
+        is_recalibration: True if device was already calibrated
 
     Raises:
         HomeAssistantError: If attribute writes fail
@@ -1183,17 +1186,24 @@ async def _calibration_phase_5_finalize(
     )
 
     # Step 13: Write + verify tilt transition steps
-    tilt_steps = SHADE_TYPE_TILT_STEPS.get(shade_type, 0)
-    try:
-        await async_write_and_verify_attrs(
-            cluster,
-            {UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS: tilt_steps},
-            manufacturer=UBISYS_MANUFACTURER_CODE,
-        )
-    except Exception as err:
-        raise HomeAssistantError(f"Failed to set tilt_steps: {err}") from err
+    # Skip for re-calibration - device won't accept changes to this attribute
+    if not is_recalibration:
+        tilt_steps = SHADE_TYPE_TILT_STEPS.get(shade_type, 0)
+        try:
+            await async_write_and_verify_attrs(
+                cluster,
+                {UBISYS_ATTR_LIFT_TO_TILT_TRANSITION_STEPS: tilt_steps},
+                manufacturer=UBISYS_MANUFACTURER_CODE,
+            )
+        except Exception as err:
+            raise HomeAssistantError(f"Failed to set tilt_steps: {err}") from err
 
-    await asyncio.sleep(SETTLE_TIME)
+        await asyncio.sleep(SETTLE_TIME)
+    else:
+        _LOGGER.info(
+            "Skipping tilt steps write for re-calibration "
+            "(device won't accept changes)"
+        )
 
     # Step 14: Exit calibration mode
     _LOGGER.debug("Step 14: Exiting calibration mode (mode=0x00)")
@@ -1381,7 +1391,7 @@ async def _perform_calibration(
             "**Phase 5:** Finalizing...",
         )
 
-        await _calibration_phase_5_finalize(cluster, shade_type, total_steps)
+        await _calibration_phase_5_finalize(cluster, shade_type, total_steps, is_recalibration)
 
         # Success! Dismiss notification with success message
         await _update_calibration_notification(
@@ -1439,7 +1449,7 @@ async def _perform_calibration(
         raise
 
 
-async def _prepare_calibration_limits(cluster: Cluster) -> None:
+async def _prepare_calibration_limits(cluster: Cluster) -> bool:
     """Write initial limit values (Official Procedure Step 2).
 
     Reference: Ubisys J1 Technical Reference, Section 7.2.5.1, Step 2
@@ -1455,6 +1465,9 @@ async def _prepare_calibration_limits(cluster: Cluster) -> None:
 
     Args:
         cluster: WindowCovering cluster for attribute writes
+
+    Returns:
+        bool: True if device was already calibrated (re-calibration), False otherwise
 
     Raises:
         HomeAssistantError: If attribute write fails
@@ -1505,6 +1518,7 @@ async def _prepare_calibration_limits(cluster: Cluster) -> None:
             manufacturer=UBISYS_MANUFACTURER_CODE,
         )
         _LOGGER.debug("✓ Wrote calibration limits")
+        return is_already_calibrated
     except Exception as err:
         raise HomeAssistantError(
             f"Failed to write initial calibration limits: {err}"

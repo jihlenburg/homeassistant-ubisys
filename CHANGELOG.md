@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.8.3] - 2025-11-18
+
+### Fixed
+- **Fixed Phase 5 tilt steps write for re-calibration**
+  - Device rejects tilt steps write when already calibrated
+  - Phase 5 now skips tilt steps write for re-calibration (device won't accept)
+  - First-time calibration still writes tilt steps normally
+  - Re-calibration now completes all 5 phases successfully!
+
+### Technical Details
+Similar to TotalSteps in Phase 1, the device locks LiftToTiltTransitionSteps after initial calibration. For re-calibration, we detect this in Phase 1 and skip the tilt steps write in Phase 5. The device retains its original tilt configuration.
+
+
 ## [1.3.8.2] - 2025-11-18
 
 ### Fixed
