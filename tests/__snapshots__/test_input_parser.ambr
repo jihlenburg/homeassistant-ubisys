@@ -1,0 +1,6 @@
+# serializer version: 1
+# name: test_input_actions_snapshot
+  list([
+    InputAction(input=0, press=short_press, ep=2, cluster=0x0006, cmd=0x02),
+  ])
+# ---

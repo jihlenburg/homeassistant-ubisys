@@ -1,0 +1,112 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure Ubisys J1",
+        "description": "Select the shade type for {device_name}. This determines which features (position, tilt) are available for control.",
+        "data": {
+          "shade_type": "Shade Type"
+        }
+      },
+      "manual": {
+        "title": "Select Ubisys Device",
+        "description": "Choose the Ubisys device you want to configure.",
+        "data": {
+          "device": "Device"
+        }
+      }
+    },
+    "error": {
+      "zha_not_found": "ZHA integration not loaded. Please ensure ZHA is set up and running.",
+      "no_devices": "No unconfigured Ubisys devices found. Please pair your device with ZHA first."
+    },
+    "abort": {
+      "already_configured": "This device is already configured",
+      "no_devices": "No Ubisys devices available. Please pair your device with ZHA first."
+    }
+  },
+  "options": {
+    "step": {
+      "about": {
+        "title": "About Ubisys {model}",
+        "description": "Configure {device_name}.\n\n• Documentation: {docs_url}\n• Issues: {issues_url}\n\nClose this page to return to options."
+      },
+      "init": {
+        "menu_options": {
+          "about": "About & Documentation",
+          "configure": "Configure Device"
+        }
+      },
+      "d1_options": {
+        "title": "D1 Advanced Options",
+        "description": "Configure phase mode and ballast range for {device_name}. Leave values empty to keep current settings.",
+        "data": {
+          "phase_mode": "Phase Mode",
+          "min_level": "Minimum Level (1-254)",
+          "max_level": "Maximum Level (1-254)",
+          "verbose_info_logging": "Verbose info logging",
+          "verbose_input_logging": "Verbose input event logging"
+        }
+      },
+      "input_config": {
+        "title": "Configure Physical Inputs",
+        "description": "Select how the physical buttons/switches on {device_name} should behave. This configures the device's InputActions and determines what commands are sent when you press buttons.",
+        "data": {
+          "input_config_preset": "Input Behavior",
+          "verbose_info_logging": "Verbose info logging",
+          "verbose_input_logging": "Verbose input event logging"
+        }
+      }
+    },
+    "error": {
+      "invalid_preset": "Invalid preset selected. Please try again.",
+      "config_write_failed": "Failed to write configuration to device. Ensure the device is powered on and connected to ZigBee network.",
+      "no_presets": "No configuration presets available for this device model."
+    },
+    "abort": {
+      "no_options": "No configuration options available for this device type.",
+      "no_presets": "No input configuration presets available for this device model."
+    }
+  },
+  "selector": {
+    "shade_type": {
+      "options": {
+        "roller": "Roller Shade (position only)",
+        "cellular": "Cellular Shade (position only)",
+        "vertical": "Vertical Blind (position only)",
+        "venetian": "Venetian Blind (position + tilt)",
+        "exterior_venetian": "Exterior Venetian Blind (position + tilt)"
+      }
+    },
+    "input_config_preset": {
+      "options": {
+        "s1_toggle": "Toggle switch (default)",
+        "s1_on_only": "On when pressed",
+        "s1_off_only": "Off when pressed",
+        "s1_rocker": "On/Off button pair",
+        "d1_toggle_dim": "Toggle + Dim (default)",
+        "d1_up_down": "Separate up/down buttons",
+        "d1_rocker": "Rocker switch (continuous dimming)"
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "calibrate": {
+        "name": "Calibrate"
+      }
+    }
+  },
+  "services": {
+    "calibrate_j1": {
+      "name": "Calibrate J1",
+      "description": "Run the automated calibration sequence for a Ubisys J1 window covering controller. This moves the cover through its full range to measure total steps and configure the device for the selected shade type.",
+      "fields": {
+        "entity_id": {
+          "name": "Entity",
+          "description": "The Ubisys J1 cover entity to calibrate."
+        }
+      }
+    }
+  }
+}

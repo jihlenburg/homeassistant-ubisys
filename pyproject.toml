@@ -1,0 +1,94 @@
+# =============================================================================
+# DEPENDENCY GROUPS (PEP 735)
+# =============================================================================
+# Modern Python standard for development dependencies (finalized October 2024)
+# Install with: uv pip install --dependency-groups dev
+# See: https://peps.python.org/pep-0735/
+
+[dependency-groups]
+# Test dependencies - everything needed to run pytest
+test = [
+    "pytest>=7.2.0,<8.0",           # Python 3.11 compatible test framework
+    "pytest-asyncio>=0.21.0,<0.22", # Async test support
+    "pytest-cov>=3.0.0,<4.0",       # Coverage reporting
+    "homeassistant==2024.1.6",      # Target Home Assistant version
+    "async-timeout>=4.0.0",         # Timeout context manager for async ops
+    "syrupy>=4.0.0",                # Snapshot testing
+]
+
+# Linting tools - code style and quality
+lint = [
+    "black",    # Code formatter
+    "isort",    # Import sorter
+    "flake8",   # Style checker
+]
+
+# Type checking tools
+typecheck = [
+    "mypy",     # Static type checker
+]
+
+# Development - all tools combined for convenience
+# Use: uv pip install --group dev (or just install test, lint, typecheck separately)
+# Note: PEP 735 include-group syntax not yet widely supported, using explicit list
+dev = [
+    {include-group = "test"},
+    {include-group = "lint"},
+    {include-group = "typecheck"},
+]
+
+
+# =============================================================================
+# TOOL CONFIGURATION
+# =============================================================================
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 88
+multi_line_output = 3
+include_trailing_comma = true
+
+[tool.mypy]
+python_version = "3.11"
+# Cover all Python in the repo (current code lives under custom_components/ and custom_zha_quirks).
+files = "."
+exclude = '^(typings/|\.venv/|venv/|build/|dist/|tmp/)'
+
+
+# Start from strict preset, then tailor for HA/Zigpy env.
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+no_implicit_optional = true
+namespace_packages = true
+explicit_package_bases = true
+ignore_missing_imports = true
+
+# Additional clarity and safety tweaks beyond `strict` defaults.
+warn_redundant_casts = true
+warn_unreachable = true
+strict_equality = true
+
+# Some third-party stubs are incomplete; allow reexports to avoid noise.
+implicit_reexport = false
+
+# Tighten further; enforce annotations on all defs and decorated functions.
+disallow_untyped_defs = true
+disallow_any_decorated = true
+
+# Relax only what's impractical with HA/Zigpy lacking stubs.
+disallow_subclassing_any = false
+disallow_any_unimported = false
+
+[[tool.mypy.overrides]]
+module = [
+  "tests.*",
+]
+disallow_untyped_defs = false
+disallow_any_decorated = false
+check_untyped_defs = false
+warn_unused_ignores = false

@@ -1,0 +1,326 @@
+# =============================================================================
+# J1 WINDOW COVERING SERVICES
+# =============================================================================
+
+calibrate_j1:
+  name: Calibrate Ubisys J1
+  description: >
+    Calibrate your Ubisys J1 blind/shade using automatic motor stall detection.
+
+
+    **What happens during calibration:**
+
+    1. Blind moves UP until it reaches the top (motor stalls)
+
+    2. Blind moves DOWN until it reaches the bottom (motor stalls)
+
+    3. Blind moves back UP to verify (returns to top)
+
+    4. Device measures and stores total travel distance
+
+
+    **Duration:** 60-120 seconds depending on blind size
+
+
+    **Important:** The blind will automatically find its limits no matter where it starts.
+    You do NOT need to position it at a specific location before calibration.
+
+
+    **Works for:** Roller shades, cellular shades, vertical blinds, and venetian blinds.
+
+
+    Make sure the blind can move freely without obstructions before starting.
+  fields:
+    entity_id:
+      name: Cover Entity
+      description: >
+        One or more Ubisys J1 cover entities to calibrate. When multiple entities
+        are selected they are processed sequentially to avoid wireless contention.
+      required: true
+      selector:
+        entity:
+          domain: cover
+          integration: ubisys
+          multiple: true
+    test_mode:
+      name: Test Mode (no writes)
+      description: Perform a health check without entering calibration or writing attributes.
+      required: false
+      default: false
+      selector:
+        boolean:
+
+# =============================================================================
+# D1 DIMMER CONFIGURATION SERVICES
+# =============================================================================
+
+configure_d1_phase_mode:
+  name: Configure D1 Phase Mode
+  description: >
+    Configure phase control mode for Ubisys D1 universal dimmer.
+
+
+    **⚠️ SAFETY WARNING:** Incorrect phase mode can damage your dimmer or connected bulbs.
+    Always start with "automatic" mode and only change if experiencing issues.
+
+
+    **Phase Modes:**
+
+    - **automatic** (default): Auto-detect load type (safest option)
+
+    - **forward**: Leading edge dimming for resistive/inductive loads
+
+    - **reverse**: Trailing edge dimming for capacitive loads (most LEDs)
+
+
+    **When to use each mode:**
+
+    - **automatic**: Use this by default. The D1 will automatically detect the load type.
+
+    - **forward**: Only if experiencing issues with resistive loads (incandescent bulbs, halogen).
+
+    - **reverse**: Only if experiencing LED flickering or buzzing with automatic mode.
+
+
+    **Symptoms that may require changing mode:**
+
+    - LED flickering at low brightness → Try "reverse" mode
+
+    - Buzzing or humming sound → Try "reverse" mode
+
+    - Dimmer getting excessively hot → Contact manufacturer
+
+
+    **Note:** Phase mode configuration is stored persistently in the device.
+  fields:
+    entity_id:
+      name: Light Entity
+      description: >
+        One or more Ubisys D1 light entities to configure. Requests are processed
+        sequentially per device to avoid overlapping cluster writes.
+      required: true
+      selector:
+        entity:
+          domain: light
+          integration: ubisys
+          multiple: true
+    phase_mode:
+      name: Phase Mode
+      description: Phase control mode (automatic, forward, or reverse).
+      required: true
+      default: "automatic"
+      selector:
+        select:
+          options:
+            - "automatic"
+            - "forward"
+            - "reverse"
+
+configure_d1_ballast:
+  name: Configure D1 Ballast
+  description: >
+    Configure ballast minimum/maximum brightness levels for Ubisys D1 dimmer.
+
+
+    **What this does:**
+
+    - **Minimum level:** Prevents LED flickering at low brightness
+
+    - **Maximum level:** Limits maximum brightness (for energy savings or load protection)
+
+
+    **Typical values:**
+
+    - **Minimum:** 10-20 (prevents flickering, lower = smoother dimming)
+
+    - **Maximum:** 254 (no limit, lower values limit brightness)
+
+
+    **How to find the right minimum level:**
+
+    1. Set minimum to 1 and test dimming down
+
+    2. Note the brightness level where flickering starts
+
+    3. Set minimum to slightly above that level
+
+
+    **Examples:**
+
+    - Standard LED bulbs: min_level=15, max_level=254
+
+    - Sensitive LED bulbs: min_level=25, max_level=254
+
+    - Energy saving mode: min_level=10, max_level=200
+
+
+    **Valid range:** 1-254 for both min and max (min must be < max)
+
+
+    **Note:** Settings are stored persistently in the device.
+  fields:
+    entity_id:
+      name: Light Entity
+      description: >
+        One or more Ubisys D1 light entities to configure. Requests are processed
+        sequentially per device to maintain Zigbee stability.
+      required: true
+      selector:
+        entity:
+          domain: light
+          integration: ubisys
+          multiple: true
+    min_level:
+      name: Minimum Level (optional)
+      description: Minimum brightness level (1-254). Leave empty to keep current setting.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 254
+          mode: box
+    max_level:
+      name: Maximum Level (optional)
+      description: Maximum brightness level (1-254). Leave empty to keep current setting.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 254
+          mode: box
+
+
+# =============================================================================
+# J1 ADVANCED TUNING
+# =============================================================================
+
+tune_j1_advanced:
+  name: Advanced J1 Tuning
+  description: >
+    Advanced tuning for Ubisys J1 manufacturer-specific parameters.
+
+
+    Use with caution. Writes persistent attributes on the WindowCovering cluster (0x0102) with manufacturer code 0x10F2.
+
+
+    Parameters:
+
+    - turnaround_guard_time (0x1000): Delay between direction reversals, in 50ms units (e.g., 10 = 500ms)
+
+    - inactive_power_threshold (0x1006): Motor inactive threshold in milliwatts (e.g., 4096 ≈ 4.1W)
+
+    - startup_steps (0x1007): Steps to run on startup (AC waves)
+
+    - additional_steps (0x1005): Overtravel percentage (0-100)
+  fields:
+    entity_id:
+      name: Cover Entity
+      description: The Ubisys J1 cover entity to tune.
+      required: true
+      selector:
+        entity:
+          domain: cover
+          integration: ubisys
+    turnaround_guard_time:
+      name: Turnaround Guard Time (50ms units)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    inactive_power_threshold:
+      name: Inactive Power Threshold (mW)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    startup_steps:
+      name: Startup Steps (AC waves)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+    additional_steps:
+      name: Additional Steps (%)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: slider
+    input_actions:
+      name: Input Actions (optional)
+      description: Input actions string (Ubisys format). Leave empty to keep current setting.
+      required: false
+      selector:
+        text:
+
+# =============================================================================
+# S1 SWITCH CONFIGURATION
+# =============================================================================
+# S1/S1-R input configuration is now done via Config Flow UI:
+# Settings → Devices & Services → Ubisys → Select Device → Configure
+#
+# This provides preset-based configuration with automatic rollback on failure.
+# The old configure_s1_input service has been removed in v2.1.0.
+
+# =============================================================================
+# MAINTENANCE SERVICES
+# =============================================================================
+
+cleanup_orphans:
+  name: Clean Up Orphaned Devices and Entities
+  description: >
+    Remove orphaned Ubisys devices and entities from Home Assistant registries.
+
+
+    **What gets cleaned:**
+
+    - Orphaned entities with no valid config entry
+
+    - Deleted devices still in the registry's recycle bin
+
+
+    **When to use this:**
+
+    - After removing and re-adding the integration
+
+    - When old device names appear during setup
+
+    - To clean up "ghost" entities that can't be removed via UI
+
+
+    **Safety:**
+
+    - Use dry_run=true first to preview what will be removed
+
+    - Only removes items with Ubisys identifiers
+
+    - Does not affect active/working devices or entities
+
+
+    **Example scenarios:**
+
+    - "Jalousie" ghost device from old integration setup
+
+    - Entities from deleted config entries
+
+    - Duplicate entities after integration reinstall
+
+
+    **Tip:** Always run with dry_run=true first to see what will be cleaned!
+  fields:
+    dry_run:
+      name: Dry Run (Preview Only)
+      description: >
+        Preview what would be cleaned without making changes.
+        Shows a notification with the count of orphaned items found.
+      required: false
+      default: false
+      selector:
+        boolean:
