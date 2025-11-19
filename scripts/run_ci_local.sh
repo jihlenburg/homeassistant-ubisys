@@ -155,6 +155,8 @@ else
   isort --check-only .
 fi
 flake8 .
+# Clear mypy cache to ensure fresh checks (prevents stale cache issues)
+rm -rf .mypy_cache
 mypy
 
 if [[ -n "${HA_VERSION}" ]]; then
