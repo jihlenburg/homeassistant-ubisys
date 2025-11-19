@@ -1147,8 +1147,11 @@ async def _calibration_phase_5_finalize(
     steps (vs. 1000-20000 for full lift) provides adequate tilt resolution.
 
     Phase Sequence:
-        Step 13: Write lift_to_tilt_transition_steps based on shade type
-                 (Skipped for re-calibration - device won't accept changes)
+        Step 13: Write lift_to_tilt_transition_steps (CONDITIONAL)
+                 Per Ubisys Technical Reference Step 8: "For tilt blinds" only
+                 - Venetian blinds (lift+tilt): Write tilt steps (100)
+                 - Roller shades (lift-only): Skip (attribute not applicable)
+                 - Re-calibration: Skip (preserve existing config)
                  Wait SETTLE_TIME for device to accept
 
         Step 14: Write mode=0x00 to exit calibration mode
@@ -1185,10 +1188,24 @@ async def _calibration_phase_5_finalize(
         "PHASE 5: Finalizing calibration",
     )
 
-    # Step 13: Write + verify tilt transition steps
-    # Skip for re-calibration - device won't accept changes to this attribute
-    if not is_recalibration:
-        tilt_steps = SHADE_TYPE_TILT_STEPS.get(shade_type, 0)
+    # Step 13: Write + verify tilt transition steps (ONLY for tilt-capable blinds)
+    # Per official Ubisys J1 Technical Reference Step 8:
+    # "For tilt blinds, set 0x10F2:0x1001 and 0x10F2:0x1003 to lift-to-tilt transition times"
+    #
+    # This step is conditional:
+    # - ONLY applies to shade types with tilt capability (venetian blinds)
+    # - Roller shades, awnings, etc. are "lift only" - tilt attribute doesn't exist
+    # - Skip for re-calibration (preserve existing configuration)
+
+    # Check if shade supports tilt AND this is first-time calibration
+    shade_supports_tilt = shade_type == "venetian"  # Only venetian has lift+tilt
+
+    if not is_recalibration and shade_supports_tilt:
+        # First-time calibration of tilt-capable blind: write tilt steps
+        tilt_steps = SHADE_TYPE_TILT_STEPS.get(shade_type, 100)
+        _LOGGER.info(
+            f"Writing tilt transition steps for {shade_type} blind: {tilt_steps}"
+        )
         try:
             await async_write_and_verify_attrs(
                 cluster,
@@ -1200,10 +1217,19 @@ async def _calibration_phase_5_finalize(
 
         await asyncio.sleep(SETTLE_TIME)
     else:
-        _LOGGER.info(
-            "Skipping tilt steps write for re-calibration "
-            "(device won't accept changes)"
-        )
+        # Skip tilt steps write for:
+        # - Re-calibration (preserve existing config)
+        # - Non-tilt shade types (roller, cellular, etc.)
+        if is_recalibration:
+            _LOGGER.info(
+                "Skipping tilt steps write for re-calibration "
+                "(preserving existing configuration)"
+            )
+        else:
+            _LOGGER.info(
+                f"Skipping tilt steps write for {shade_type} "
+                "(shade type is lift-only, no tilt capability)"
+            )
 
     # Step 14: Exit calibration mode
     _LOGGER.debug("Step 14: Exiting calibration mode (mode=0x00)")

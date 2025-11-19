@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.8.4] - 2025-11-19
+
+### Fixed
+- **Fixed Phase 5 tilt steps write per official Ubisys documentation**
+  - v1.3.8.3 incorrectly skipped tilt steps for ALL re-calibrations
+  - **Root cause**: Tilt steps attribute only exists for tilt-capable blinds (venetian)
+  - **Per Ubisys J1 Technical Reference Step 8**: "For tilt blinds" (conditional)
+  - Roller shades are "lift only" - tilt attribute doesn't exist/isn't writable
+  - Device correctly rejected write with MALFORMED_COMMAND error
+
+### Correct Behavior (v1.3.8.4)
+**Write tilt steps ONLY when:**
+- First-time calibration, AND
+- Shade type is venetian (has both lift & tilt capability)
+
+**Skip tilt steps when:**
+- Re-calibration (preserve existing configuration), OR
+- Shade type is lift-only (roller, cellular, vertical, awning, drapery)
+
+### Technical Details
+Ubisys shade types:
+- Type 0-5, 9: **Lift only** (roller, awning, etc.) - No tilt attribute
+- Type 6-7: **Tilt only** (shutters) - Different use case
+- Type 8: **Lift & Tilt** (venetian) - Has LiftToTiltTransitionSteps attribute
+
+The attribute `0x10F2:0x1001` (LiftToTiltTransitionSteps) is configuration-specific to the mechanical blind type, not a measured value. Writing it to non-tilt shades causes MALFORMED_COMMAND error.
+
+
 ## [1.3.8.3] - 2025-11-18
 
 ### Fixed
