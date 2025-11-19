@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.8.5] - 2025-11-19
+
+### Fixed
+- **Fixed variable scoping error in v1.3.8.4**
+  - `is_recalibration` was defined in Phase 1 but not passed to Phase 5
+  - Modified `_calibration_phase_1_enter_mode` to return the flag
+  - Captured return value in `_perform_calibration` and passed to Phase 5
+  - Emergency hotfix for NameError that broke v1.3.8.4
+
+### Lesson Learned
+Variable scoping across phase functions requires proper return values and parameter passing. Phase 1 must return `is_recalibration` so it can be used by Phase 5.
+
+
 ## [1.3.8.4] - 2025-11-19
 
 ### Fixed

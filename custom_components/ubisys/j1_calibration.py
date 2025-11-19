@@ -669,7 +669,7 @@ async def _handle_calibration_failure(
 async def _calibration_phase_1_enter_mode(
     cluster: Cluster,
     shade_type: str,
-) -> None:
+) -> bool:
     """PHASE 1: Prepare device for calibration.
 
     Implements Official Ubisys Procedure Steps 1-3:
@@ -761,6 +761,8 @@ async def _calibration_phase_1_enter_mode(
         window_covering_type=window_covering_type,
         elapsed_s=round(sw.elapsed, 1),
     )
+
+    return is_recalibration
 
 
 async def _calibration_phase_2_find_top(
@@ -1352,7 +1354,7 @@ async def _perform_calibration(
         )
 
         # Execute 5-phase calibration sequence
-        await _calibration_phase_1_enter_mode(cluster, shade_type)
+        is_recalibration = await _calibration_phase_1_enter_mode(cluster, shade_type)
         # Total timeout enforcement across phases
         if time.time() - overall_start > TOTAL_CALIBRATION_TIMEOUT:
             raise HomeAssistantError(
