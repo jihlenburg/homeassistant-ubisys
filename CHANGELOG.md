@@ -8,6 +8,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.3.9] - 2025-11-19
+
+### Fixed
+- **CRITICAL: Fixed "infinite loop at top" calibration failure**
+  - When shade starts at TOP position, Phase 2 would timeout after 120s
+  - Motor reports "running" continuously but can't move (physically blocked)
+  - Device auto-stop detection expects MOVEMENT-to-LIMIT, not ALREADY-AT-LIMIT
+  - Added Phase 1B: Official Ubisys Procedure Step 4 (move down before finding top)
+
+### Solution (Phase 1B)
+**Implements Official Ubisys J1 Technical Reference, Step 4:**
+> "Send 'move down' command, then 'stop' after a few centimeters to reach starting position"
+
+**Implementation:**
+- After Phase 1 (enter calibration mode), execute Phase 1B
+- Send `down_close` command → Wait 2 seconds → Send `stop` command
+- Moves ~5-10cm away from top limit (enough to clear limit switch)
+- Then Phase 2 can safely find top limit via proper movement-to-limit
+
+**Works from ANY starting position:**
+- At TOP: Moves down 6-10cm → **FIXES THE BUG**
+- In MIDDLE: Moves down slightly → harmless, adds ~3s
+- At BOTTOM: No movement (already at limit) → no-op
+
+### Root Cause Analysis
+The J1 device's firmware detects physical limits by monitoring motor current draw:
+- **Normal scenario**: Motor moving → hits limit → current spike → auto-stop ✓
+- **Bug scenario**: Motor already at limit → tries to move → no current spike → reports "running" indefinitely ✗
+
+The device's calibration mode auto-stop logic is designed for the first scenario. When already at a limit, it can't generate the current spike needed to trigger auto-stop, causing the 120-second timeout.
+
+### Technical Details
+- Added `_calibration_phase_1b_prepare_position()` function
+- Updated calibration sequence: 1 → **1B** → 2 → 3 → 4 → 5
+- Updated UI notifications to show Phase 1B progress
+- Module docstring updated to reflect new phase
+- Adds ~3 seconds to total calibration time (acceptable trade-off)
+
+### Why This Solution
+1. **Manufacturer-documented** - This is the official Ubisys procedure we should have been following
+2. **Simple and reliable** - No complex heuristics or attribute monitoring
+3. **Handles root cause** - Ensures shade is not at limit before finding limit
+4. **Low risk** - Proven approach from manufacturer, worst case adds 3s
+5. **Future-proof** - Works for all shade types and starting positions
+
+### Alternative Considered (Rejected)
+Monitoring `CurrentPositionLiftPercentage` before calibration was considered but rejected because this attribute **does not update during calibration mode**. Per code analysis and technical reference, position tracking only resumes after calibration completes and device exits calibration mode.
+
+
 ## [1.3.8.5] - 2025-11-19
 
 ### Fixed

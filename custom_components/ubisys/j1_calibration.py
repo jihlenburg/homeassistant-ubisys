@@ -7,6 +7,7 @@ physical limits and stops the motor when reached.
 Calibration sequence:
 
 1. Configure device (window_covering_type for shade type)
+1B. Prepare position (move down briefly to ensure not at top - v1.3.9 fix)
 2. Find top limit (device auto-stops at physical limit)
 3. Find bottom limit (device auto-stops and calculates total_steps)
 4. Return to top (verification that limits were correctly learned)
@@ -14,6 +15,9 @@ Calibration sequence:
 
 The device enters calibration behavior automatically when TotalSteps is
 uninitialized (0xFFFF) and learns limits through the up-down-up sequence.
+
+Phase 1B (v1.3.9) prevents "infinite loop at top" bug by ensuring shade
+is not at the top limit before Phase 2 begins, per Official Step 4.
 
 This works for both roller blinds and venetian blinds.
 """
@@ -765,6 +769,121 @@ async def _calibration_phase_1_enter_mode(
     return is_recalibration
 
 
+async def _calibration_phase_1b_prepare_position(
+    hass: HomeAssistant,
+    cluster: Cluster,
+) -> None:
+    """PHASE 1B: Prepare starting position by moving away from top limit.
+
+    ═══════════════════════════════════════════════════════════════════════════
+    Official Ubisys Procedure: Step 4 - "Send 'move down' command, then 'stop'
+    after a few centimeters to reach starting position"
+    ═══════════════════════════════════════════════════════════════════════════
+
+    CRITICAL FIX (v1.3.9): This phase prevents the "infinite loop at top" bug.
+
+    THE PROBLEM:
+    When calibration starts with shade already at the TOP position:
+    - Phase 2 sends up_open command
+    - Motor tries to move up but is physically blocked by top limit
+    - Device reports OperationalStatus=0x01 (motor running) continuously
+    - Algorithm waits 120 seconds for auto-stop that never comes
+    - Calibration times out and fails
+
+    WHY THIS HAPPENS:
+    The device's auto-stop detection is designed for MOVEMENT-to-LIMIT scenarios.
+    When the motor is ALREADY-AT-LIMIT, it can't generate the current spike needed
+    to trigger auto-stop, so it reports "running" indefinitely while straining
+    against the mechanical limit.
+
+    THE SOLUTION:
+    Official Ubisys procedure includes Step 4: move down briefly BEFORE finding
+    the top limit. This ensures the shade is NOT at the top position when Phase 2
+    begins, allowing proper movement-to-limit detection.
+
+    IMPLEMENTATION:
+    - Send down_close command (continuous downward movement)
+    - Wait 2 seconds (moves ~5-10cm away from top)
+    - Send stop command to halt movement
+    - Wait settle time for motor to stabilize
+
+    WHY 2 SECONDS?
+    - Typical J1 motor speed: ~3-5 cm/second
+    - 2 seconds = ~6-10cm of movement
+    - Enough to clear top limit switch/mechanical stop
+    - Not so long that it wastes time if already in middle position
+    - Matches "a few centimeters" from official procedure
+
+    WORKS FROM ANY STARTING POSITION:
+    - At TOP: Moves down 6-10cm (FIXES THE BUG)
+    - In MIDDLE: Moves down slightly (harmless, adds ~3s)
+    - At BOTTOM: down_close does nothing since already at limit (no-op)
+
+    Args:
+        hass: Home Assistant instance (for verbose logging check)
+        cluster: WindowCovering cluster for sending Zigbee commands
+
+    Raises:
+        HomeAssistantError: If down_close or stop command fails
+            - Device communication error
+            - Device not responding
+            - Zigbee network issue
+
+    Example:
+        >>> # After Phase 1 (entered calibration mode)
+        >>> await _calibration_phase_1b_prepare_position(hass, cluster)
+        >>> # Shade is now definitely NOT at top position
+        >>> # Phase 2 can safely find top limit without infinite loop
+
+    See Also:
+        - _calibration_phase_2_find_top(): Next phase (now works from any position)
+        - Official Ubisys J1 Technical Reference, Section 7.2.5.1, Step 4
+    """
+    sw = Stopwatch()
+
+    kv(
+        _LOGGER,
+        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+        "PHASE 1B: Preparing starting position (Official Step 4)",
+    )
+
+    # Step 4a: Send down_close command to move away from potential top limit
+    _LOGGER.debug(
+        "Step 4a: Sending down_close command to ensure not at top limit "
+        "(will move ~5-10cm downward)"
+    )
+    try:
+        await async_zcl_command(cluster, "down_close", timeout_s=15.0, retries=1)
+    except Exception as err:
+        raise HomeAssistantError(
+            f"Failed to send down_close command during position prep: {err}"
+        ) from err
+
+    # Step 4b: Wait 2 seconds for downward movement
+    _LOGGER.debug("Step 4b: Moving down for 2 seconds...")
+    await asyncio.sleep(2.0)
+
+    # Step 4c: Send stop command to halt movement
+    _LOGGER.debug("Step 4c: Sending stop command")
+    try:
+        await async_zcl_command(cluster, "stop", timeout_s=15.0, retries=1)
+    except Exception as err:
+        raise HomeAssistantError(
+            f"Failed to send stop command during position prep: {err}"
+        ) from err
+
+    # Step 4d: Wait for motor to settle
+    _LOGGER.debug("Step 4d: Waiting for motor to settle...")
+    await asyncio.sleep(SETTLE_TIME)
+
+    kv(
+        _LOGGER,
+        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+        "PHASE 1B complete: Starting position prepared",
+        elapsed_s=round(sw.elapsed, 1),
+    )
+
+
 async def _calibration_phase_2_find_top(
     hass: HomeAssistant,
     cluster: Cluster,
@@ -1353,7 +1472,7 @@ async def _perform_calibration(
             "**Phase 1:** Preparing device...",
         )
 
-        # Execute 5-phase calibration sequence
+        # Execute 5-phase calibration sequence (with Phase 1B pre-positioning)
         is_recalibration = await _calibration_phase_1_enter_mode(cluster, shade_type)
         # Total timeout enforcement across phases
         if time.time() - overall_start > TOTAL_CALIBRATION_TIMEOUT:
@@ -1366,6 +1485,21 @@ async def _perform_calibration(
             "J1 Calibration In Progress",
             "Calibration in progress... This will take 2-3 minutes.\n\n"
             "✅ **Phase 1:** Device prepared\n"
+            "**Phase 1B:** Positioning for calibration...",
+        )
+
+        await _calibration_phase_1b_prepare_position(hass, cluster)
+        if time.time() - overall_start > TOTAL_CALIBRATION_TIMEOUT:
+            raise HomeAssistantError(
+                "Calibration exceeded total timeout during Phase 1B"
+            )
+        await _update_calibration_notification(
+            hass,
+            zha_entity_id,
+            "J1 Calibration In Progress",
+            "Calibration in progress... This will take 2-3 minutes.\n\n"
+            "✅ **Phase 1:** Device prepared\n"
+            "✅ **Phase 1B:** Position prepared\n"
             "**Phase 2:** Finding top limit (motor moving up)...",
         )
 
@@ -1428,6 +1562,7 @@ async def _perform_calibration(
             "J1 Calibration Complete ✅",
             "Calibration completed successfully!\n\n"
             "✅ **Phase 1:** Device prepared\n"
+            "✅ **Phase 1B:** Position prepared\n"
             "✅ **Phase 2:** Top limit found\n"
             "✅ **Phase 3:** Bottom limit found\n"
             "✅ **Phase 4:** Verification complete\n"
