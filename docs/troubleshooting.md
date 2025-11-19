@@ -815,7 +815,6 @@ When wrapper shows as unavailable, try these steps in order:
 ## See Also
 
 - [J1 Calibration Guide](devices/j1_window_covering.md)
-- [Window Covering Architecture](window_covering_architecture.md) (Developer reference)
 
 
 ## Device Discovery Issues

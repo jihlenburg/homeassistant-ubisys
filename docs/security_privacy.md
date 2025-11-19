@@ -2,7 +2,7 @@
 
 Compatibility: Home Assistant 2024.1+ (Python 3.11+)
 
-Docs: [index](index.md) · [diagnostics](../custom_components/ubisys/diagnostics.py) · [logging policy](logging.md)
+Docs: [index](index.md) · [logging policy](logging.md)
 
 ## Data Scope
 

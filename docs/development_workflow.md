@@ -373,6 +373,5 @@ The `--no-owner --no-group` flags prevent rsync from trying to preserve the sour
 
 ## References
 
-- [Deploy Custom HA Add-on via SSH.md](/Users/jihlenburg/Downloads/Deploy%20Custom%20HA%20Add-on%20via%20SSH.md) - Original document this workflow is based on
 - [Advanced SSH & Web Terminal Add-on](https://github.com/hassio-addons/addon-ssh) - Official add-on repository
 - [How to Use Rsync to Sync Local and Remote Directories](https://www.digitalocean.com/community/tutorials/how-to-use-rsync-to-sync-local-and-remote-directories) - rsync tutorial

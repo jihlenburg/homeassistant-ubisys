@@ -50,7 +50,7 @@
 
 > [!NOTE]
 > **J1 Shade Types:** Roller, Cellular, Vertical Blind, Venetian, Exterior Venetian
-> **Full device support matrix:** [Device Support Matrix](docs/device_support_matrix.md)
+> **Full device details:** [User Guide](docs/user_guide.md#supported-devices)
 
 ---
 
@@ -70,7 +70,7 @@
 7. Click **Download**
 8. **Restart Home Assistant**
 
-**Other installation methods:** [Installation Guide](docs/installation.md)
+**Other installation methods:** [User Guide](docs/user_guide.md#installation)
 </details>
 
 <details>
@@ -117,7 +117,7 @@ target:
   entity_id: cover.bedroom_shade
 ```
 
-**Learn more:** [J1 Calibration Guide](docs/j1_calibration.md)
+**Learn more:** [J1 Calibration Guide](docs/devices/j1_window_covering.md)
 
 ---
 
@@ -147,7 +147,7 @@ data:
   tilt_position: 75
 ```
 
-**More examples:** [Usage Examples](docs/examples.md)
+**More examples:** [User Guide](docs/user_guide.md)
 </details>
 
 <details>
@@ -177,7 +177,7 @@ data:
   max_level: 254
 ```
 
-**Full configuration guide:** [D1 Configuration](docs/d1_configuration.md)
+**Full configuration guide:** [D1 Configuration Guide](docs/devices/d1_universal_dimmer.md)
 </details>
 
 <details>
@@ -199,7 +199,7 @@ automation:
           position: 50
 ```
 
-**More trigger examples:** [Device Triggers Guide](docs/device_triggers_examples.md)
+**More trigger examples:** [J1 Device Guide](docs/devices/j1_window_covering.md)
 </details>
 
 ---
@@ -252,7 +252,7 @@ logger:
 3. Check logs: `grep -i "calibration\|ubisys" /config/home-assistant.log`
 4. Try test mode first: `test_mode: true`
 
-**Detailed debugging:** [J1 Calibration Guide](docs/j1_calibration.md#troubleshooting)
+**Detailed debugging:** [J1 Calibration Guide](docs/devices/j1_window_covering.md#troubleshooting)
 </details>
 
 <details>
@@ -265,30 +265,26 @@ logger:
 
 </details>
 
-**More solutions:** [Troubleshooting Guide](docs/troubleshooting.md) • [FAQ](docs/faq.md)
+**More solutions:** [Troubleshooting Guide](docs/troubleshooting.md)
 
 ---
 
 ## 📚 Documentation
 
 ### User Guides
-- 📖 [Getting Started](docs/getting_started.md)
-- 🪟 [J1 Calibration Guide](docs/j1_calibration.md)
-- 💡 [D1 Configuration Guide](docs/d1_configuration.md)
-- 🎯 [Device Triggers & Automations](docs/device_triggers_examples.md)
-- 📝 [Usage Examples & Lovelace Cards](docs/examples.md)
+- 📖 [User Guide](docs/user_guide.md) - Installation, configuration, examples
+- 🪟 [J1 Window Covering](docs/devices/j1_window_covering.md) - Calibration & shade control
+- 💡 [D1 Universal Dimmer](docs/devices/d1_universal_dimmer.md) - Phase control & ballast config
+- 🔌 [S1 Power Switch](docs/devices/s1_power_switch.md) - Input configuration
 
 ### Reference
-- 🛠️ [Installation Guide](docs/installation.md)
 - 🐛 [Troubleshooting](docs/troubleshooting.md)
-- ❓ [FAQ](docs/faq.md)
-- ⚠️ [Known Issues & Roadmap](docs/known_issues.md)
+- 📋 [Logging Policy](docs/logging.md)
 - 🗺️ [Roadmap](docs/roadmap.md)
 
 ### Developer
-- 🏗️ [Architecture Overview](docs/architecture_overview.md)
 - 🤝 [Contributing Guide](CONTRIBUTING.md)
-- 🧪 [Testing Guide](docs/development.md)
+- 🔧 [Development Workflow](docs/development_workflow.md)
 
 ---
 
