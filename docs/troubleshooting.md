@@ -269,7 +269,7 @@ Check ZHA device status:
 ### Calibration Service Not Found
 
 **Symptoms:**
-- Error: "Service ubisys.calibrate does not exist"
+- Error: "Service ubisys.calibrate_j1 does not exist"
 
 **Solutions:**
 
@@ -278,13 +278,13 @@ Check ZHA device status:
    grep "ubisys" ~/.homeassistant/home-assistant.log
    ```
 
-2. **Check services.yaml:**
-   ```bash
-   cat ~/.homeassistant/custom_components/ubisys/services.yaml
-   ```
+2. **Check services are registered:**
+   - Developer Tools → Services
+   - Search for "ubisys"
+   - Should see `ubisys.calibrate_j1`
 
 3. **Reload integration:**
-   - Configuration → Integrations → Ubisys → ⋮ → Reload
+   - Settings → Devices & Services → Ubisys → ⋮ → Reload
 
 ### Calibration Fails to Start
 
@@ -294,31 +294,24 @@ Check ZHA device status:
 
 **Diagnostic Steps:**
 ```bash
-# Check python_script logs
-grep -i "ubisys_j1_calibrate" ~/.homeassistant/home-assistant.log
-
-# Test python_script component
-# Go to Developer Tools → Services
-# Try: python_script.reload
+# Check calibration logs
+grep -i "calibrat" ~/.homeassistant/home-assistant.log | tail -50
 ```
 
 **Solutions:**
 
-1. **Enable python_script:**
-   ```yaml
-   # configuration.yaml
-   python_script:
-   ```
+1. **Check device connectivity:**
+   - Ensure device is powered and connected to ZigBee network
+   - Check ZHA device page for connection status
 
-2. **Check script syntax:**
-   ```bash
-   python3 -m py_compile ~/.homeassistant/python_scripts/ubisys_j1_calibrate.py
-   ```
-
-3. **Verify entity ID:**
+2. **Verify entity ID:**
    - Developer Tools → States
-   - Copy exact entity_id
+   - Copy exact cover entity_id (e.g., `cover.ubisys_j1_cover`)
    - Use in calibration call
+
+3. **Check for concurrent operations:**
+   - Only one calibration can run per device
+   - Wait for any in-progress calibration to complete
 
 ### Calibration Times Out
 
@@ -392,7 +385,7 @@ grep -i "ubisys_j1_calibrate" ~/.homeassistant/home-assistant.log
 
 2. **Check calibration:**
    - Position control requires calibration
-   - Run `ubisys.calibrate`
+   - Run `ubisys.calibrate_j1`
 
 3. **Verify supported features:**
    - Developer Tools → States

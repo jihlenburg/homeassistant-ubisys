@@ -20,12 +20,23 @@ from homeassistant.helpers import config_validation as cv
 from .cleanup import async_cleanup_orphans
 from .const import (
     DOMAIN,
-    SERVICE_CALIBRATE_COVER,
+    SERVICE_CALIBRATE_J1,
     SERVICE_CONFIGURE_D1_BALLAST,
+    SERVICE_CONFIGURE_D1_ON_LEVEL,
     SERVICE_CONFIGURE_D1_PHASE_MODE,
+    SERVICE_CONFIGURE_D1_STARTUP,
+    SERVICE_CONFIGURE_D1_TRANSITION,
+    SERVICE_GET_D1_STATUS,
     SERVICE_TUNE_J1_ADVANCED,
 )
-from .d1_config import async_configure_ballast, async_configure_phase_mode
+from .d1_config import (
+    async_configure_ballast,
+    async_configure_on_level,
+    async_configure_phase_mode,
+    async_configure_startup,
+    async_configure_transition_time,
+    async_get_status,
+)
 from .helpers import is_verbose_info_logging
 from .j1_calibration import async_calibrate_j1, async_tune_j1
 
@@ -38,7 +49,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
     # -------------------------------------------------------------------------
     # J1 Calibration Service
     # -------------------------------------------------------------------------
-    _LOGGER.debug("Registering J1 calibration service: %s", SERVICE_CALIBRATE_COVER)
+    _LOGGER.debug("Registering J1 calibration service: %s", SERVICE_CALIBRATE_J1)
 
     async def _calibrate_j1_handler(call: ServiceCall) -> None:
         """Wrapper to inject hass into calibration handler."""
@@ -46,7 +57,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     hass.services.async_register(
         DOMAIN,
-        SERVICE_CALIBRATE_COVER,
+        SERVICE_CALIBRATE_J1,
         _calibrate_j1_handler,
         schema=vol.Schema(
             {
@@ -144,6 +155,124 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 ),
             }
         ),
+    )
+
+    # D1 Transition Time Service
+    _LOGGER.debug(
+        "Registering D1 transition time service: %s", SERVICE_CONFIGURE_D1_TRANSITION
+    )
+
+    async def _configure_transition_handler(call: ServiceCall) -> None:
+        """Wrapper to inject hass and extract parameters from call."""
+        entity_ids = _normalize_entity_ids(call.data.get("entity_id"))
+        transition_time = call.data.get("transition_time")
+        if transition_time is None:
+            raise HomeAssistantError("Missing required parameter: transition_time")
+
+        async def runner(entity_id: str) -> None:
+            await async_configure_transition_time(hass, entity_id, transition_time)
+
+        await _run_multi_entity_service(entity_ids, runner)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CONFIGURE_D1_TRANSITION,
+        _configure_transition_handler,
+        schema=vol.Schema(
+            {
+                vol.Required("entity_id"): cv.entity_ids,
+                vol.Required("transition_time"): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=65535)
+                ),
+            }
+        ),
+    )
+
+    # D1 On Level Service
+    _LOGGER.debug("Registering D1 on level service: %s", SERVICE_CONFIGURE_D1_ON_LEVEL)
+
+    async def _configure_on_level_handler(call: ServiceCall) -> None:
+        """Wrapper to inject hass and extract parameters from call."""
+        entity_ids = _normalize_entity_ids(call.data.get("entity_id"))
+        on_level = call.data.get("on_level")
+        startup_level = call.data.get("startup_level")
+
+        async def runner(entity_id: str) -> None:
+            await async_configure_on_level(hass, entity_id, on_level, startup_level)
+
+        await _run_multi_entity_service(entity_ids, runner)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CONFIGURE_D1_ON_LEVEL,
+        _configure_on_level_handler,
+        schema=vol.Schema(
+            {
+                vol.Required("entity_id"): cv.entity_ids,
+                vol.Optional("on_level"): vol.All(
+                    vol.Coerce(int), vol.Range(min=1, max=255)
+                ),
+                vol.Optional("startup_level"): vol.All(
+                    vol.Coerce(int), vol.Range(min=1, max=255)
+                ),
+            }
+        ),
+    )
+
+    # D1 Startup Behavior Service
+    _LOGGER.debug("Registering D1 startup service: %s", SERVICE_CONFIGURE_D1_STARTUP)
+
+    async def _configure_startup_handler(call: ServiceCall) -> None:
+        """Wrapper to inject hass and extract parameters from call."""
+        entity_ids = _normalize_entity_ids(call.data.get("entity_id"))
+        startup_on_off = call.data.get("startup_on_off")
+        if startup_on_off is None:
+            raise HomeAssistantError("Missing required parameter: startup_on_off")
+
+        async def runner(entity_id: str) -> None:
+            await async_configure_startup(hass, entity_id, startup_on_off)
+
+        await _run_multi_entity_service(entity_ids, runner)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CONFIGURE_D1_STARTUP,
+        _configure_startup_handler,
+        schema=vol.Schema(
+            {
+                vol.Required("entity_id"): cv.entity_ids,
+                vol.Required("startup_on_off"): vol.In(
+                    ["off", "on", "toggle", "previous"]
+                ),
+            }
+        ),
+    )
+
+    # D1 Status Read Service
+    _LOGGER.debug("Registering D1 status service: %s", SERVICE_GET_D1_STATUS)
+
+    async def _get_status_handler(call: ServiceCall) -> dict[str, int | str | bool]:
+        """Wrapper to inject hass and return status."""
+        entity_id = call.data.get("entity_id")
+        if entity_id is None:
+            raise HomeAssistantError("Missing required parameter: entity_id")
+
+        # Handle both single entity and list (take first)
+        if isinstance(entity_id, (list, tuple)):
+            entity_id = entity_id[0]
+
+        return await async_get_status(hass, entity_id)
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_D1_STATUS,
+        _get_status_handler,
+        schema=vol.Schema(
+            {
+                vol.Required("entity_id"): cv.entity_id,
+            }
+        ),
+        supports_response="optional",
     )
 
     # -------------------------------------------------------------------------

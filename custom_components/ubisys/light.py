@@ -113,17 +113,10 @@ async def async_setup_entry(
         model,
     )
 
-    # Find the ZHA light entity for this device
-    zha_entity_id = await _find_zha_light_entity(hass, device_id)
+    # Find the ZHA light entity (or predict entity ID if not found yet)
+    zha_entity_id = await _find_zha_light_entity(hass, device_id, device_ieee)
 
-    if not zha_entity_id:
-        _LOGGER.error(
-            "Could not find ZHA light entity for device %s (%s). "
-            "Ensure the device is paired with ZHA and the D1 quirk is loaded.",
-            device_id,
-            device_ieee,
-        )
-        return
+    # Note: ZHA entity auto-enable is handled centrally in __init__.py
 
     _LOGGER.log(
         logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
@@ -145,18 +138,22 @@ async def async_setup_entry(
     async_add_entities([light])
 
 
-async def _find_zha_light_entity(hass: HomeAssistant, device_id: str) -> str | None:
+async def _find_zha_light_entity(
+    hass: HomeAssistant, device_id: str, device_ieee: str
+) -> str:
     """Find the ZHA light entity for a device.
 
-    Searches the entity registry for a ZHA light entity associated with the
-    given device ID. There should be exactly one ZHA light entity per D1 device.
+    If the ZHA entity doesn't exist yet (e.g., during startup race condition),
+    this function predicts the entity ID. The wrapper entity will mark itself
+    as unavailable and automatically recover when ZHA creates its entity.
 
     Args:
         hass: Home Assistant instance
         device_id: Device registry ID
+        device_ieee: Device IEEE address for logging and prediction
 
     Returns:
-        ZHA light entity ID (e.g., "light.bedroom_d1_2") or None if not found
+        ZHA light entity ID (either found or predicted)
 
     Why This Is Needed:
         ZHA creates entities with its own naming scheme and entity IDs. We need
@@ -165,6 +162,7 @@ async def _find_zha_light_entity(hass: HomeAssistant, device_id: str) -> str | N
 
     See Also:
         - helpers.py: find_zha_entity_for_device() - similar shared utility
+        - cover.py: _find_zha_cover_entity() - same pattern for covers
     """
     entity_registry = er.async_get(hass)
 
@@ -187,12 +185,33 @@ async def _find_zha_light_entity(hass: HomeAssistant, device_id: str) -> str | N
             )
             return cast(str, entity_entry.entity_id)
 
+    # ZHA entity not found - predict entity ID
+    # This handles startup race condition where Ubisys loads before ZHA
+    from homeassistant.helpers import device_registry as dr
+
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get(device_id)
+
+    if device and device.name_by_user:
+        predicted_name = device.name_by_user.lower().replace(" ", "_")
+    elif device and device.name:
+        predicted_name = device.name.lower().replace(" ", "_")
+    else:
+        # Fallback: use IEEE address
+        predicted_name = f"ubisys_{device_ieee.replace(':', '_')}"
+
+    predicted_entity_id = f"light.{predicted_name}"
+
     _LOGGER.warning(
-        "No ZHA light entity found for device %s. Available entities: %s",
+        "ZHA light entity not found for device %s (%s). "
+        "Predicting entity ID as %s. "
+        "Wrapper entity will be unavailable until ZHA entity appears.",
         device_id,
-        [(e.entity_id, e.platform, e.domain) for e in entities],
+        device_ieee,
+        predicted_entity_id,
     )
-    return None
+
+    return predicted_entity_id
 
 
 class UbisysLight(LightEntity):
@@ -267,6 +286,11 @@ class UbisysLight(LightEntity):
         self._attr_is_on: bool | None = None
         self._attr_brightness: int | None = None
 
+        # ZHA entity availability tracking (for graceful degradation)
+        # This allows wrapper entity to handle startup race conditions
+        # where ZHA hasn't created its entity yet
+        self._zha_entity_available = False
+
         _LOGGER.debug(
             "Initialized UbisysLight: ieee=%s, zha_entity=%s, model=%s",
             device_ieee,
@@ -331,27 +355,46 @@ class UbisysLight(LightEntity):
     async def _sync_state_from_zha(self) -> None:
         """Sync state from ZHA entity.
 
-        Reads the current state of the ZHA entity and updates our wrapper's
-        state attributes to match. This keeps our wrapper entity in sync with
-        the underlying Zigbee device.
+        Handles graceful degradation when ZHA entity doesn't exist yet
+        (startup race condition) or becomes unavailable.
 
         State Attributes Synced:
             - is_on: Whether light is on or off
             - brightness: Current brightness level (0-255)
-
-        Error Handling:
-            If ZHA entity state is unavailable, logs a warning but doesn't fail.
-            This handles cases where ZHA entity is temporarily unavailable.
         """
         zha_state = self.hass.states.get(self._zha_entity_id)
 
         if zha_state is None:
-            _LOGGER.warning(
-                "ZHA entity %s state not found during sync for %s",
-                self._zha_entity_id,
-                self._attr_unique_id,
-            )
+            # ZHA entity not found - handle gracefully
+            if self._zha_entity_available:
+                # Entity was available before, now it's gone
+                _LOGGER.warning(
+                    "ZHA entity %s disappeared for device %s",
+                    self._zha_entity_id,
+                    self._device_ieee,
+                )
+            else:
+                # Entity never existed (likely startup race condition)
+                _LOGGER.debug(
+                    "ZHA entity %s not found for sync (device: %s). "
+                    "Wrapper will be unavailable until ZHA entity appears.",
+                    self._zha_entity_id,
+                    self._device_ieee,
+                )
+
+            self._zha_entity_available = False
+            self.async_write_ha_state()
             return
+
+        # ZHA entity exists - check if it just appeared
+        if not self._zha_entity_available:
+            _LOGGER.info(
+                "ZHA entity %s became available for device %s. "
+                "Wrapper entity is now operational.",
+                self._zha_entity_id,
+                self._device_ieee,
+            )
+            self._zha_entity_available = True
 
         # Update state attributes from ZHA entity
         self._attr_is_on = zha_state.state == "on"
@@ -368,6 +411,31 @@ class UbisysLight(LightEntity):
         )
 
     @property
+    def available(self) -> bool:
+        """Return if entity is available.
+
+        Wrapper entity is only available when the underlying ZHA entity exists
+        and is available. This handles startup race conditions where Ubisys loads
+        before ZHA has created its light entity.
+
+        Returns:
+            True if ZHA entity exists and is available, False otherwise
+        """
+        zha_state = self.hass.states.get(self._zha_entity_id)
+
+        if zha_state is None:
+            # ZHA entity doesn't exist yet (startup race condition)
+            return False
+
+        # Check if ZHA entity is available (not unavailable/unknown)
+        from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+
+        if zha_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return False
+
+        return True
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return entity-specific state attributes.
 
@@ -378,19 +446,18 @@ class UbisysLight(LightEntity):
 
         Returns:
             Dictionary of additional attributes
-
-        Example State:
-            {
-                "model": "D1",
-                "zha_entity_id": "light.bedroom_d1_2",
-                "integration": "ubisys"
-            }
         """
-        return {
+        attrs = {
             "model": self._model,
             "zha_entity_id": self._zha_entity_id,
             "integration": "ubisys",
         }
+
+        # Add availability info for debugging
+        if not self._zha_entity_available:
+            attrs["unavailable_reason"] = "ZHA entity not found or unavailable"
+
+        return attrs
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on.

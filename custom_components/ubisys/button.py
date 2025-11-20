@@ -64,7 +64,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_DEVICE_IEEE, DOMAIN, SERVICE_CALIBRATE_COVER
+from .const import CONF_DEVICE_IEEE, DOMAIN, SERVICE_CALIBRATE_J1
 from .helpers import is_verbose_info_logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -175,7 +175,7 @@ class UbisysCalibrationButton(ButtonEntity):
         try:
             await self.hass.services.async_call(
                 DOMAIN,
-                SERVICE_CALIBRATE_COVER,
+                SERVICE_CALIBRATE_J1,
                 {"entity_id": cover_entity_id},
                 blocking=False,
             )
@@ -222,7 +222,7 @@ class UbisysHealthCheckButton(ButtonEntity):
             return
         await self.hass.services.async_call(
             DOMAIN,
-            SERVICE_CALIBRATE_COVER,
+            SERVICE_CALIBRATE_J1,
             {"entity_id": cover_entity_id, "test_mode": True},
             blocking=False,
         )

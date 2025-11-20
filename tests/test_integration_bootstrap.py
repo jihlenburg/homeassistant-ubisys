@@ -10,7 +10,7 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
 
 from custom_components.ubisys.const import (
     DOMAIN,
-    SERVICE_CALIBRATE_COVER,
+    SERVICE_CALIBRATE_J1,
     SERVICE_CONFIGURE_D1_BALLAST,
     SERVICE_CONFIGURE_D1_PHASE_MODE,
 )
@@ -50,7 +50,7 @@ async def test_async_setup_registers_services_and_handles_startup(
     assert await ubisys.async_setup(hass, {})
     await hass.async_block_till_done()
 
-    assert hass.services.has_service(DOMAIN, SERVICE_CALIBRATE_COVER)
+    assert hass.services.has_service(DOMAIN, SERVICE_CALIBRATE_J1)
     assert hass.services.has_service(DOMAIN, SERVICE_CONFIGURE_D1_PHASE_MODE)
     assert hass.services.has_service(DOMAIN, SERVICE_CONFIGURE_D1_BALLAST)
 
@@ -135,7 +135,7 @@ async def test_async_unload_entry_unhides_and_unloads(hass_full, monkeypatch):
 
     unhide.assert_awaited_once_with(hass, entry)
     untrack.assert_called_once_with(hass, entry)
-    unload_monitor.assert_awaited_once_with(hass)
+    unload_monitor.assert_awaited_once_with(hass, "00:11")  # Now passes device_ieee
     cleanup.assert_awaited_once_with(hass, "00:11")  # Verify cleanup was called
     hass.config_entries.async_unload_platforms.assert_awaited_once_with(
         entry, ubisys.PLATFORMS

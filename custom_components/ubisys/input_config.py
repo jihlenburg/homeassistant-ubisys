@@ -169,11 +169,26 @@ TRANSITION_LONG_PRESS = 0x03
 TRANSITION_DOUBLE_PRESS = 0x04
 TRANSITION_ALTERNATING_FLAG = 0x80  # OR with transition type
 
-# Device-specific endpoint constants
-# S1 endpoints
+# =============================================================================
+# DEVICE-SPECIFIC ENDPOINT CONSTANTS
+# =============================================================================
+# Each Ubisys device has controller endpoints (EP2, EP3) that send commands
+# when physical inputs are pressed. These are the source endpoints in InputActions.
+
+# S1 endpoints (power switch)
 S1_PRIMARY_ENDPOINT = 2  # S1 input 0 source endpoint (Level Control Switch - client)
 S1R_PRIMARY_ENDPOINT = 2  # S1-R input 0 source endpoint
 S1R_SECONDARY_ENDPOINT = 3  # S1-R input 1 source endpoint
+
+# D1 endpoints (universal dimmer)
+# D1 and D1-R both have 2 inputs
+D1_PRIMARY_ENDPOINT = 2  # D1 input 0 source endpoint
+D1_SECONDARY_ENDPOINT = 3  # D1 input 1 source endpoint
+
+# J1 endpoints (window covering)
+# J1 and J1-R both have 2 inputs for up/down control
+J1_PRIMARY_ENDPOINT = 2  # J1 input 0 source endpoint (typically "up")
+J1_SECONDARY_ENDPOINT = 3  # J1 input 1 source endpoint (typically "down")
 
 
 class InputConfigPreset(str, Enum):
@@ -181,25 +196,49 @@ class InputConfigPreset(str, Enum):
 
     Each preset represents a common use case with pre-configured
     InputActions micro-code that's ready to write to the device.
+
+    Preset Design Philosophy:
+        - Cover 90% of use cases with simple, tested configurations
+        - Provide DECOUPLED option for full Home Assistant control
+        - Use descriptive names that match physical switch behavior
+
+    Adding New Presets:
+        1. Add enum value here
+        2. Add to build_preset() in InputActionBuilder
+        3. Add to PRESET_INFO with name and description
+        4. Add to MODEL_PRESETS for appropriate device models
+        5. Add translation in strings.json
     """
 
+    # -------------------------------------------------------------------------
     # S1/S1-R presets (power switch)
+    # -------------------------------------------------------------------------
     S1_TOGGLE = "s1_toggle"  # Toggle on press (default)
     S1_ON_ONLY = "s1_on_only"  # Turn on when pressed, turn off when released
     S1_OFF_ONLY = "s1_off_only"  # Turn off when pressed, turn on when released
     S1_ROCKER = "s1_rocker"  # S1-R: Button 1=on, Button 2=off
+    S1_TOGGLE_DIM = "s1_toggle_dim"  # Short=toggle, Long=dim (dimmer control)
+    S1_UP_DOWN = "s1_up_down"  # S1-R: Button 1=brighter, Button 2=dimmer
+    S1_DECOUPLED = "s1_decoupled"  # No local control, events only
 
-    # D1/D1-R presets (dimmer)
+    # -------------------------------------------------------------------------
+    # D1/D1-R presets (universal dimmer)
+    # -------------------------------------------------------------------------
     D1_TOGGLE_DIM = "d1_toggle_dim"  # Short=toggle, Long=dim (default)
     D1_UP_DOWN = "d1_up_down"  # Button 1=brighter, Button 2=dimmer
     D1_ROCKER = "d1_rocker"  # Rocker switch: up=brighter, down=dimmer
+    D1_STEP = "d1_step"  # Step dimming for latching switches
+    D1_DECOUPLED = "d1_decoupled"  # No local control, events only
 
-    # J1 doesn't need presets - default configuration is optimal
-    # (Up/Down buttons with stop on release)
-
-    # Future: Add scene-only mode presets (buttons trigger automations only,
-    # no direct device control). Requires design work on how to handle events
-    # without affecting physical outputs.
+    # -------------------------------------------------------------------------
+    # J1/J1-R presets (window covering)
+    # -------------------------------------------------------------------------
+    # J1 has 2 inputs controlling a window covering (blinds/shades)
+    # Uses WindowCovering cluster (0x0102) with Up/Down/Stop commands
+    J1_COVER_ROCKER = "j1_cover_rocker"  # Button 1=up, Button 2=down (default)
+    J1_TOGGLE = "j1_toggle"  # Single button cycles: open→stop→close→stop
+    J1_ALTERNATING = "j1_alternating"  # Alternating up/down for latching switches
+    J1_DECOUPLED = "j1_decoupled"  # No local control, events only
 
 
 @dataclass
@@ -530,6 +569,335 @@ class InputActionBuilder:
             ),
         ]
 
+    def build_dimmer_step(
+        self,
+        input_number: int,
+        endpoint: int,
+        step_size: int = 32,
+        inverted: bool = False,
+    ) -> list[InputAction]:
+        """Build step dimming for latching switches (single button dimmer control).
+
+        This preset is specifically designed for latching switches (push-on/push-off
+        switches that stay in position after pressing). Unlike momentary switches
+        where you can "hold to dim", latching switches require a different approach
+        using discrete brightness steps.
+
+        How it works:
+        - Press 1: Step brightness UP by step_size
+        - Press 2: Step brightness DOWN by step_size
+        - (cycle repeats)
+
+        Each press alternates between stepping up and stepping down. This provides
+        fine-grained control over brightness without needing to hold a button.
+
+        Why step_size=32?
+        - ZigBee brightness range is 0-254 (8-bit)
+        - step_size=32 gives ~8 steps from min to max (254/32 ≈ 8)
+        - This balances precision with speed of adjustment
+        - Users can reach any brightness in 4 presses maximum
+
+        Technical details:
+        - Uses LevelControl cluster (0x0008) step command (0x02)
+        - Step command payload: [mode, step_size, transition_time_low, transition_time_high]
+        - mode=0x00 for up, mode=0x01 for down
+        - transition_time=0 for immediate change
+
+        Args:
+            input_number: Input number (0-15)
+            endpoint: Source endpoint (usually 2)
+            step_size: Brightness step amount (1-254, default 32 = ~12.5% per step)
+            inverted: Whether to invert input logic
+
+        Returns:
+            List with two alternating actions (step up, step down)
+
+        Example:
+            A user with a latching wall switch controlling a D1 dimmer:
+            - Current brightness: 50%
+            - Press switch: brightness increases to ~62.5%
+            - Press switch again: brightness decreases to ~50%
+            - Continue pressing to fine-tune brightness
+
+        Use case:
+            Install a latching push switch (push-on/push-off) to control a D1
+            dimmer. Each press adjusts brightness without needing to hold.
+        """
+        return [
+            # Step UP (first press in cycle, alternating)
+            # Increases brightness by step_size
+            InputAction(
+                input_number=input_number,
+                inverted=inverted,
+                transition=TRANSITION_SHORT_PRESS,
+                alternating=True,
+                source_endpoint=endpoint,
+                cluster_id=CLUSTER_LEVEL_CONTROL,
+                command_id=CMD_STEP,
+                # Payload: [mode=up, step_size, transition_time_low, transition_time_high]
+                payload=bytes([0x00, step_size, 0x00, 0x00]),
+            ),
+            # Step DOWN (second press in cycle, ends alternation)
+            # Decreases brightness by step_size
+            InputAction(
+                input_number=input_number,
+                inverted=inverted,
+                transition=TRANSITION_SHORT_PRESS,
+                alternating=False,  # End of cycle
+                source_endpoint=endpoint,
+                cluster_id=CLUSTER_LEVEL_CONTROL,
+                command_id=CMD_STEP,
+                # Payload: [mode=down, step_size, transition_time_low, transition_time_high]
+                payload=bytes([0x01, step_size, 0x00, 0x00]),
+            ),
+        ]
+
+    # -------------------------------------------------------------------------
+    # J1 Window Covering Builder Functions
+    # -------------------------------------------------------------------------
+    # These functions generate InputActions for window covering control using
+    # the WindowCovering cluster (0x0102) with Up/Down/Stop commands.
+
+    def build_cover_rocker(
+        self,
+        input_up: int,
+        input_down: int,
+        endpoint_up: int,
+        endpoint_down: int,
+        inverted: bool = False,
+    ) -> list[InputAction]:
+        """Build window covering with separate up/down buttons (default J1 configuration).
+
+        This is the most common window covering configuration:
+        - Button 1 (input_up): Press=up/open, Release=stop
+        - Button 2 (input_down): Press=down/close, Release=stop
+
+        This allows precise control - the covering moves while the button is held
+        and stops when released.
+
+        Args:
+            input_up: Input number for "up" button (usually 0)
+            input_down: Input number for "down" button (usually 1)
+            endpoint_up: Endpoint for up button (usually 2)
+            endpoint_down: Endpoint for down button (usually 3)
+            inverted: Whether to invert input logic
+
+        Returns:
+            List with four actions (pressed + released for each button)
+
+        Example:
+            J1 with two momentary push buttons for blind control:
+            - Top button: opens blind while pressed
+            - Bottom button: closes blind while pressed
+        """
+        return [
+            # Button 1 pressed = up/open
+            InputAction(
+                input_number=input_up,
+                inverted=inverted,
+                transition=TRANSITION_PRESSED,
+                alternating=False,
+                source_endpoint=endpoint_up,
+                cluster_id=CLUSTER_WINDOW_COVERING,
+                command_id=CMD_UP_OPEN,
+                payload=b"",
+            ),
+            # Button 1 released = stop
+            InputAction(
+                input_number=input_up,
+                inverted=inverted,
+                transition=TRANSITION_RELEASED,
+                alternating=False,
+                source_endpoint=endpoint_up,
+                cluster_id=CLUSTER_WINDOW_COVERING,
+                command_id=CMD_WC_STOP,
+                payload=b"",
+            ),
+            # Button 2 pressed = down/close
+            InputAction(
+                input_number=input_down,
+                inverted=inverted,
+                transition=TRANSITION_PRESSED,
+                alternating=False,
+                source_endpoint=endpoint_down,
+                cluster_id=CLUSTER_WINDOW_COVERING,
+                command_id=CMD_DOWN_CLOSE,
+                payload=b"",
+            ),
+            # Button 2 released = stop
+            InputAction(
+                input_number=input_down,
+                inverted=inverted,
+                transition=TRANSITION_RELEASED,
+                alternating=False,
+                source_endpoint=endpoint_down,
+                cluster_id=CLUSTER_WINDOW_COVERING,
+                command_id=CMD_WC_STOP,
+                payload=b"",
+            ),
+        ]
+
+    def build_cover_toggle(
+        self,
+        input_number: int,
+        endpoint: int,
+        inverted: bool = False,
+    ) -> list[InputAction]:
+        """Build window covering with single toggle button (cycle through states).
+
+        This configuration uses one button to cycle through:
+        - Press 1: Open (up)
+        - Press 2: Stop
+        - Press 3: Close (down)
+        - Press 4: Stop
+        - (repeat)
+
+        This is achieved using alternating actions that cycle through 4 states.
+
+        Args:
+            input_number: Input number (0-15)
+            endpoint: Source endpoint (usually 2)
+            inverted: Whether to invert input logic
+
+        Returns:
+            List with four alternating actions for the state cycle
+
+        Example:
+            Single-button control for window covering - each press advances
+            through the open→stop→close→stop cycle.
+        """
+        return [
+            # Short press 1 = up/open (alternating, starts cycle)
+            InputAction(
+                input_number=input_number,
+                inverted=inverted,
+                transition=TRANSITION_SHORT_PRESS,
+                alternating=True,
+                source_endpoint=endpoint,
+                cluster_id=CLUSTER_WINDOW_COVERING,
+                command_id=CMD_UP_OPEN,
+                payload=b"",
+            ),
+            # Short press 2 = stop (alternating)
+            InputAction(
+                input_number=input_number,
+                inverted=inverted,
+                transition=TRANSITION_SHORT_PRESS,
+                alternating=True,
+                source_endpoint=endpoint,
+                cluster_id=CLUSTER_WINDOW_COVERING,
+                command_id=CMD_WC_STOP,
+                payload=b"",
+            ),
+            # Short press 3 = down/close (alternating)
+            InputAction(
+                input_number=input_number,
+                inverted=inverted,
+                transition=TRANSITION_SHORT_PRESS,
+                alternating=True,
+                source_endpoint=endpoint,
+                cluster_id=CLUSTER_WINDOW_COVERING,
+                command_id=CMD_DOWN_CLOSE,
+                payload=b"",
+            ),
+            # Short press 4 = stop (alternating, completes cycle)
+            InputAction(
+                input_number=input_number,
+                inverted=inverted,
+                transition=TRANSITION_SHORT_PRESS,
+                alternating=False,  # Last in cycle, no alternating flag
+                source_endpoint=endpoint,
+                cluster_id=CLUSTER_WINDOW_COVERING,
+                command_id=CMD_WC_STOP,
+                payload=b"",
+            ),
+        ]
+
+    def build_cover_alternating(
+        self,
+        input_number: int,
+        endpoint: int,
+        inverted: bool = False,
+    ) -> list[InputAction]:
+        """Build alternating up/down for latching switches (single button cover control).
+
+        This preset is specifically designed for latching switches (push-on/push-off
+        switches that stay in position after pressing). Unlike J1_TOGGLE which has
+        a 4-state cycle (open→stop→close→stop), this preset uses a simpler 2-state
+        alternation between up and down.
+
+        How it works:
+        - Press 1: Send up_open command (covering opens)
+        - Press 2: Send down_close command (covering closes)
+        - (cycle repeats)
+
+        Each press alternates between opening and closing. The covering stops
+        automatically when it reaches its limit. To stop mid-movement, press again
+        to reverse direction.
+
+        Why this is better than J1_TOGGLE for latching switches:
+        - Only 2 presses per cycle (not 4)
+        - More intuitive - press to go up, press again to go down
+        - Faster to reach desired position
+        - Covering stops naturally at limits
+
+        Why no explicit stop command?
+        - Latching switches can't easily "tap" for stop (no double-press timing)
+        - Reversing direction effectively stops movement momentarily
+        - The covering will stop at its calibrated limits
+        - Users can fine-tune with alternating presses
+
+        Technical details:
+        - Uses WindowCovering cluster (0x0102)
+        - up_open command (0x00) moves covering toward open position
+        - down_close command (0x01) moves covering toward closed position
+
+        Args:
+            input_number: Input number (0-15)
+            endpoint: Source endpoint (usually 2)
+            inverted: Whether to invert input logic
+
+        Returns:
+            List with two alternating actions (up_open, down_close)
+
+        Example:
+            A user with a latching wall switch controlling J1 blinds:
+            - Blinds are closed
+            - Press switch: blinds start opening
+            - Press switch while moving: blinds start closing
+            - Blinds stop automatically at limit
+
+        Use case:
+            Install a latching push switch (push-on/push-off) to control J1
+            window covering. Each press reverses direction for simple control.
+        """
+        return [
+            # Open/Up (first press in cycle, alternating)
+            # Starts covering movement toward open position
+            InputAction(
+                input_number=input_number,
+                inverted=inverted,
+                transition=TRANSITION_SHORT_PRESS,
+                alternating=True,
+                source_endpoint=endpoint,
+                cluster_id=CLUSTER_WINDOW_COVERING,
+                command_id=CMD_UP_OPEN,
+                payload=b"",
+            ),
+            # Close/Down (second press in cycle, ends alternation)
+            # Starts covering movement toward closed position
+            InputAction(
+                input_number=input_number,
+                inverted=inverted,
+                transition=TRANSITION_SHORT_PRESS,
+                alternating=False,  # End of cycle
+                source_endpoint=endpoint,
+                cluster_id=CLUSTER_WINDOW_COVERING,
+                command_id=CMD_DOWN_CLOSE,
+                payload=b"",
+            ),
+        ]
+
     def build_preset(
         self,
         preset: InputConfigPreset,
@@ -645,6 +1013,102 @@ class InputActionBuilder:
                 ),
             ]
 
+        elif preset == InputConfigPreset.D1_STEP:
+            if model not in ("D1", "D1-R"):
+                raise ValueError(f"Preset {preset} not valid for {model}")
+            # Step dimming for latching switches (push-on/push-off)
+            # Each press alternates between step up and step down
+            # Ideal when "hold to dim" isn't possible
+            return self.build_dimmer_step(
+                input_number=0,
+                endpoint=D1_PRIMARY_ENDPOINT,
+            )
+
+        # -------------------------------------------------------------------------
+        # DECOUPLED presets - No local control, events only for HA automations
+        # -------------------------------------------------------------------------
+        # These presets generate empty InputActions, meaning physical button presses
+        # won't control the device directly. However, press events are still sent
+        # to Home Assistant via the input monitoring system, allowing automations
+        # to handle all control logic while ensuring devices work when HA is down.
+
+        elif preset == InputConfigPreset.S1_TOGGLE_DIM:
+            if model not in ("S1", "S1-R"):
+                raise ValueError(f"Preset {preset} not valid for {model}")
+            # Same as D1's toggle+dim - makes S1 act as dimmer controller
+            # Useful for controlling remote dimmers via group binding
+            return self.build_dimmer_toggle_dim(
+                input_number=0,
+                endpoint=S1_PRIMARY_ENDPOINT,
+            )
+
+        elif preset == InputConfigPreset.S1_UP_DOWN:
+            if model != "S1-R":
+                raise ValueError(f"Preset {preset} requires S1-R (dual input)")
+            # S1-R acts as dimmer controller with separate buttons
+            # Button 1 = on + dim up, Button 2 = off + dim down
+            return self.build_dimmer_up_down(
+                input_up=0,
+                input_down=1,
+                endpoint_up=S1R_PRIMARY_ENDPOINT,
+                endpoint_down=S1R_SECONDARY_ENDPOINT,
+            )
+
+        elif preset == InputConfigPreset.S1_DECOUPLED:
+            if model not in ("S1", "S1-R"):
+                raise ValueError(f"Preset {preset} not valid for {model}")
+            # Empty actions = no local control, but events still fire to HA
+            return []
+
+        elif preset == InputConfigPreset.D1_DECOUPLED:
+            if model not in ("D1", "D1-R"):
+                raise ValueError(f"Preset {preset} not valid for {model}")
+            # Empty actions = no local control, but events still fire to HA
+            return []
+
+        # -------------------------------------------------------------------------
+        # J1 Window Covering presets
+        # -------------------------------------------------------------------------
+
+        elif preset == InputConfigPreset.J1_COVER_ROCKER:
+            if model not in ("J1", "J1-R"):
+                raise ValueError(f"Preset {preset} not valid for {model}")
+            # Two-button control: Button 1=up/open, Button 2=down/close
+            # Press and hold = continuous movement, release = stop
+            return self.build_cover_rocker(
+                input_up=0,
+                input_down=1,
+                endpoint_up=J1_PRIMARY_ENDPOINT,
+                endpoint_down=J1_SECONDARY_ENDPOINT,
+            )
+
+        elif preset == InputConfigPreset.J1_TOGGLE:
+            if model not in ("J1", "J1-R"):
+                raise ValueError(f"Preset {preset} not valid for {model}")
+            # Single button cycles: open → stop → close → stop → repeat
+            # Uses first input only
+            return self.build_cover_toggle(
+                input_number=0,
+                endpoint=J1_PRIMARY_ENDPOINT,
+            )
+
+        elif preset == InputConfigPreset.J1_ALTERNATING:
+            if model not in ("J1", "J1-R"):
+                raise ValueError(f"Preset {preset} not valid for {model}")
+            # Alternating up/down for latching switches (push-on/push-off)
+            # Each press alternates between up_open and down_close
+            # Simpler than J1_TOGGLE (2 states vs 4 states)
+            return self.build_cover_alternating(
+                input_number=0,
+                endpoint=J1_PRIMARY_ENDPOINT,
+            )
+
+        elif preset == InputConfigPreset.J1_DECOUPLED:
+            if model not in ("J1", "J1-R"):
+                raise ValueError(f"Preset {preset} not valid for {model}")
+            # Empty actions = no local control, but events still fire to HA
+            return []
+
         else:
             raise ValueError(f"Unknown preset: {preset}")
 
@@ -657,8 +1121,12 @@ class InputConfigPresets:
     """
 
     # Preset metadata (name, description)
+    # Each preset has a user-friendly name and description shown in the UI.
+    # The description should explain what the physical buttons do, not technical details.
     PRESET_INFO = {
-        # S1/S1-R presets
+        # -------------------------------------------------------------------------
+        # S1/S1-R presets (power switch)
+        # -------------------------------------------------------------------------
         InputConfigPreset.S1_TOGGLE: (
             "Toggle switch (default)",
             "Each press toggles the output on/off",
@@ -675,7 +1143,21 @@ class InputConfigPresets:
             "On/Off button pair",
             "Button 1 turns on, Button 2 turns off",
         ),
-        # D1/D1-R presets
+        InputConfigPreset.S1_TOGGLE_DIM: (
+            "Toggle + Dim (dimmer control)",
+            "Short press toggles, long press dims up/down",
+        ),
+        InputConfigPreset.S1_UP_DOWN: (
+            "Brightness up/down buttons",
+            "Button 1 brightens, Button 2 dims",
+        ),
+        InputConfigPreset.S1_DECOUPLED: (
+            "Decoupled (HA control only)",
+            "Buttons send events to HA but don't control output directly",
+        ),
+        # -------------------------------------------------------------------------
+        # D1/D1-R presets (universal dimmer)
+        # -------------------------------------------------------------------------
         InputConfigPreset.D1_TOGGLE_DIM: (
             "Toggle + Dim (default)",
             "Short press toggles, long press dims up/down",
@@ -688,30 +1170,89 @@ class InputConfigPresets:
             "Rocker switch (continuous dimming)",
             "Up position dims up, down position dims down",
         ),
+        InputConfigPreset.D1_STEP: (
+            "Step dimming (latching switch)",
+            "Each press steps brightness up or down - ideal for push-on/push-off switches",
+        ),
+        InputConfigPreset.D1_DECOUPLED: (
+            "Decoupled (HA control only)",
+            "Buttons send events to HA but don't control output directly",
+        ),
+        # -------------------------------------------------------------------------
+        # J1/J1-R presets (window covering)
+        # -------------------------------------------------------------------------
+        InputConfigPreset.J1_COVER_ROCKER: (
+            "Up/Down buttons (default)",
+            "Button 1 opens, Button 2 closes. Release to stop.",
+        ),
+        InputConfigPreset.J1_TOGGLE: (
+            "Single button cycle",
+            "Each press cycles: open → stop → close → stop",
+        ),
+        InputConfigPreset.J1_ALTERNATING: (
+            "Alternating up/down (latching switch)",
+            "Each press alternates between open and close - ideal for push-on/push-off switches",
+        ),
+        InputConfigPreset.J1_DECOUPLED: (
+            "Decoupled (HA control only)",
+            "Buttons send events to HA but don't control covering directly",
+        ),
     }
 
     # Device model to available presets
+    # Each device model has a list of available presets in display order.
+    # The first preset in each list is the default (marked with "default" in UI).
     MODEL_PRESETS = {
+        # -------------------------------------------------------------------------
+        # S1/S1-R: Power switch with 1 or 2 inputs
+        # -------------------------------------------------------------------------
         "S1": [
-            InputConfigPreset.S1_TOGGLE,
+            InputConfigPreset.S1_TOGGLE,  # Default: single press toggles
             InputConfigPreset.S1_ON_ONLY,
             InputConfigPreset.S1_OFF_ONLY,
+            InputConfigPreset.S1_TOGGLE_DIM,  # Control remote dimmers
+            InputConfigPreset.S1_DECOUPLED,  # For advanced HA automations
         ],
         "S1-R": [
-            InputConfigPreset.S1_TOGGLE,
+            InputConfigPreset.S1_TOGGLE,  # Default: single press toggles
             InputConfigPreset.S1_ON_ONLY,
             InputConfigPreset.S1_OFF_ONLY,
-            InputConfigPreset.S1_ROCKER,
+            InputConfigPreset.S1_ROCKER,  # Uses both inputs
+            InputConfigPreset.S1_TOGGLE_DIM,  # Control remote dimmers
+            InputConfigPreset.S1_UP_DOWN,  # Separate brightness buttons
+            InputConfigPreset.S1_DECOUPLED,  # For advanced HA automations
         ],
+        # -------------------------------------------------------------------------
+        # D1/D1-R: Universal dimmer with 2 inputs
+        # -------------------------------------------------------------------------
         "D1": [
-            InputConfigPreset.D1_TOGGLE_DIM,
-            InputConfigPreset.D1_UP_DOWN,  # Both D1 and D1-R have 2 inputs
-            InputConfigPreset.D1_ROCKER,
+            InputConfigPreset.D1_TOGGLE_DIM,  # Default: short=toggle, long=dim
+            InputConfigPreset.D1_UP_DOWN,  # Separate brightness buttons
+            InputConfigPreset.D1_ROCKER,  # Continuous dimming while held
+            InputConfigPreset.D1_STEP,  # Step dimming for latching switches
+            InputConfigPreset.D1_DECOUPLED,  # For advanced HA automations
         ],
         "D1-R": [
-            InputConfigPreset.D1_TOGGLE_DIM,
-            InputConfigPreset.D1_UP_DOWN,  # Both D1 and D1-R have 2 inputs
-            InputConfigPreset.D1_ROCKER,
+            InputConfigPreset.D1_TOGGLE_DIM,  # Default: short=toggle, long=dim
+            InputConfigPreset.D1_UP_DOWN,  # Separate brightness buttons
+            InputConfigPreset.D1_ROCKER,  # Continuous dimming while held
+            InputConfigPreset.D1_STEP,  # Step dimming for latching switches
+            InputConfigPreset.D1_DECOUPLED,  # For advanced HA automations
+        ],
+        # -------------------------------------------------------------------------
+        # J1/J1-R: Window covering controller with 2 inputs
+        # -------------------------------------------------------------------------
+        "J1": [
+            InputConfigPreset.J1_COVER_ROCKER,  # Default: up/down buttons
+            InputConfigPreset.J1_TOGGLE,  # Single button cycle
+            InputConfigPreset.J1_ALTERNATING,  # Alternating up/down for latching switches
+            InputConfigPreset.J1_DECOUPLED,  # For advanced HA automations
+        ],
+        "J1-R": [
+            InputConfigPreset.J1_COVER_ROCKER,  # Default: up/down buttons
+            InputConfigPreset.J1_TOGGLE,  # Single button cycle
+            InputConfigPreset.J1_ALTERNATING,  # Alternating up/down for latching switches
+            InputConfigPreset.J1_DECOUPLED,  # For advanced HA automations
         ],
     }
 

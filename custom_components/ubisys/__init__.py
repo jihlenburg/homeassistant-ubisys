@@ -194,8 +194,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Remove tracked ZHA entities for this config entry
     async_untrack_zha_entities(hass, entry)
 
-    # Unload input monitoring
-    await async_unload_input_monitoring(hass)
+    # Unload input monitoring for this device only (not all devices)
+    device_ieee = entry.data.get("device_ieee")
+    await async_unload_input_monitoring(hass, device_ieee)
 
     # Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

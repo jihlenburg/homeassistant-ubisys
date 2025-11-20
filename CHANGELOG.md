@@ -5,6 +5,59 @@ All notable changes to the Ubisys Home Assistant Integration.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+#### Input Configuration Presets for D1 and J1
+
+- **D1 input presets** with 4 configurations:
+  - Toggle + Dim (default): Short press toggles, long press dims up/down
+  - Separate up/down buttons: Button 1 brightens, Button 2 dims
+  - Rocker switch: Continuous dimming while pressed
+  - Decoupled: Events only, HA automation control
+
+- **J1 input presets** with 3 configurations:
+  - Up/Down buttons (default): Button 1 opens, Button 2 closes, release stops
+  - Single button cycle: Each press cycles open→stop→close→stop
+  - Decoupled: Events only, HA automation control
+
+- **S1/S1-R enhanced presets** with dimmer control:
+  - Toggle + Dim: Short press toggles, long press dims (control remote dimmers)
+  - Brightness up/down buttons (S1-R): Button 1 brightens, Button 2 dims
+  - Decoupled: Events only, HA automation control
+
+- **Latching switch presets** for D1 and J1:
+  - D1_STEP: Step dimming for latching switches - each press steps brightness up/down
+  - J1_ALTERNATING: Alternating up/down for latching switches - simpler 2-state cycle
+
+- **Dynamic UI descriptions** for input configuration:
+  - Config flow shows all available presets with descriptions inline
+  - Preset explanations customized per device model
+  - Uses `description_placeholders` pattern for runtime-built content
+
+- **Options Flow integration** for D1 and J1 input configuration
+  - D1: Configure → D1 Advanced Options → Input Configuration
+  - J1: Configure → J1 Advanced → Input Configuration
+  - S1: Configure → Input Configuration (existing)
+
+- **Input configuration translations** for all new presets
+
+### Documentation
+
+- Updated D1 documentation with input configuration section
+- Updated J1 documentation with input configuration section
+- Updated S1 documentation with expanded input configuration section
+- Added decoupled mode examples with device trigger automations
+- Added dimmer control preset use cases for S1/S1-R
+
+### Fixed
+
+- **ZHA entity recovery for D1/S1** - Light and switch platforms now predict entity IDs and automatically recover when ZHA entity appears (matches cover platform behavior)
+- **Per-entry input monitoring teardown** - Unloading one device no longer removes input monitors for all devices
+- **Consistent service naming** - Changed `calibrate_cover` to `calibrate_j1` for clarity
+- **Documentation accuracy** - Fixed all service name references and removed obsolete python_script instructions
+
 ## [1.0.0] - 2025-11-19
 
 Initial release with complete feature set.
@@ -61,7 +114,7 @@ Initial release with complete feature set.
 
 #### Configuration Services
 
-- `ubisys.calibrate_cover` - Automated J1 calibration
+- `ubisys.calibrate_j1` - Automated J1 calibration
 - `ubisys.tune_j1_advanced` - Advanced J1 tuning parameters
 - `ubisys.configure_d1_phase_mode` - D1 phase control mode
 - `ubisys.configure_d1_ballast` - D1 ballast min/max levels

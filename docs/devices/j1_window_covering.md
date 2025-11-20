@@ -374,6 +374,121 @@ data:
 - Avoid setting guard time too low for safety and mechanical longevity
 - If unsure about a value, use the options flow which provides helpful defaults
 
+## Input Configuration
+
+### What is Input Configuration?
+
+Input configuration determines how the J1's physical buttons control the window covering. The J1 has two physical inputs that can be configured with different behaviors.
+
+### Available Presets
+
+Configure input behavior via **Settings** → **Devices & Services** → **Ubisys** → **[Your J1 Device]** → **Configure**:
+
+| Preset | Description | Behavior |
+|--------|-------------|----------|
+| **Up/Down buttons (default)** | Two-button operation | Button 1: open, Button 2: close. Release to stop. |
+| **Single button cycle** | Single-button operation | Each press cycles: open → stop → close → stop |
+| **Decoupled (HA control only)** | Advanced automations | Buttons send events to HA but don't control covering directly |
+
+### When to Use Each Preset
+
+**Up/Down buttons (Default)**
+- Standard two-button wall plate
+- Most intuitive for daily use
+- Press and hold for continuous movement
+- Release to stop at desired position
+
+**Single button cycle**
+- Single push button installation
+- Each press advances through the cycle
+- Good for simplified wall plates
+
+**Decoupled**
+- Full Home Assistant control
+- Create custom automations for button presses
+- Buttons fire events but don't affect covering
+- **Important**: Device still works locally if HA is down (events still fire)
+
+### Configuring Input Behavior
+
+1. Navigate to **Settings** → **Devices & Services**
+2. Find and click the **Ubisys** integration
+3. Click **Configure** on your J1 device
+4. Select **Configure Device**
+5. Configure shade type and logging options
+6. Click **Submit**
+7. Adjust J1 Advanced Tuning parameters if needed
+8. Click **Submit**
+9. Select your desired **Input Behavior** preset
+10. Click **Submit**
+
+The configuration is written to the device's non-volatile memory and persists across:
+- ✅ Home Assistant restarts
+- ✅ ZHA integration reloads
+- ✅ Power outages
+
+### Using Decoupled Mode
+
+When using Decoupled mode, buttons don't directly control the covering. Instead, they fire Home Assistant events that you can use in automations.
+
+**Setting up automations:**
+
+1. Navigate to **Settings** → **Automations & Scenes**
+2. Click **Create Automation**
+3. Choose **Device** as trigger
+4. Select your J1 device
+5. Choose the button event (e.g., "Button 1 short press")
+6. Add your desired actions
+
+**Example automation:**
+```yaml
+automation:
+  - alias: "J1 Button 1 Controls Multiple Covers"
+    trigger:
+      - platform: device
+        domain: ubisys
+        device_id: YOUR_DEVICE_ID
+        type: button_1_short_press
+    action:
+      - service: cover.open_cover
+        target:
+          entity_id:
+            - cover.bedroom_shade
+            - cover.office_shade
+```
+
+**Example: Button holds position while pressed:**
+```yaml
+automation:
+  - alias: "J1 Button 1 Pressed Opens"
+    trigger:
+      - platform: device
+        domain: ubisys
+        device_id: YOUR_DEVICE_ID
+        type: button_1_pressed
+    action:
+      - service: cover.open_cover
+        target:
+          entity_id: cover.bedroom_shade
+
+  - alias: "J1 Button 1 Released Stops"
+    trigger:
+      - platform: device
+        domain: ubisys
+        device_id: YOUR_DEVICE_ID
+        type: button_1_released
+    action:
+      - service: cover.stop_cover
+        target:
+          entity_id: cover.bedroom_shade
+```
+
+### Local Control vs. Decoupled
+
+**Important**: Unlike "smart device mode" in some integrations, the Ubisys J1 InputActions system maintains local control. Even in Decoupled mode, the device processes button presses locally and sends events to Home Assistant - it doesn't require HA to be online for the buttons to function. The difference is whether those button presses also directly control the covering.
+
+This design philosophy ensures your wall switches remain responsive even if Home Assistant goes offline.
+
 ## Manual Zigbee Commands
 
 ### Manual Step Counter Reset

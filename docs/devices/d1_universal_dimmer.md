@@ -22,7 +22,7 @@ This integration exposes three manufacturer-specific configuration services:
 
 1. **Phase Control Mode** - Critical for proper dimming behavior
 2. **Ballast Configuration** - Fine-tune brightness range for LED compatibility
-3. **Input Configuration** - Configure physical wall switches (planned Phase 3)
+3. **Input Configuration** - Configure physical button behavior via Options Flow
 
 ## Phase Control Mode Configuration
 
@@ -532,6 +532,98 @@ If you've tried different phase modes and ballast settings but still have issues
 4. **Check Wiring**: Verify proper installation and grounding
 5. **Update Firmware**: Check if D1 firmware update is available
 6. **Consult Manufacturer**: Both LED and dimmer manufacturers may have compatibility lists
+
+## Input Configuration
+
+### What is Input Configuration?
+
+Input configuration determines how the D1's physical buttons control the dimmer. The D1 has two physical inputs that can be configured with different behaviors.
+
+### Available Presets
+
+Configure input behavior via **Settings** → **Devices & Services** → **Ubisys** → **[Your D1 Device]** → **Configure**:
+
+| Preset | Description | Behavior |
+|--------|-------------|----------|
+| **Toggle + Dim (default)** | Single-button operation | Short press toggles on/off, long press dims up/down (alternating) |
+| **Separate up/down buttons** | Two-button operation | Button 1: on + dim up, Button 2: off + dim down |
+| **Rocker switch (continuous dimming)** | Rocker/stationary switch | Press = start dimming, release = stop |
+| **Decoupled (HA control only)** | Advanced automations | Buttons send events to HA but don't control output directly |
+
+### When to Use Each Preset
+
+**Toggle + Dim (Default)**
+- Single momentary push button
+- Most intuitive for general use
+- Short press toggles light, hold to dim
+
+**Separate up/down buttons**
+- Two-button wall plate
+- Dedicated on/off and brightness control
+- Precise control without alternating
+
+**Rocker switch**
+- Stationary rocker switch (not spring-return)
+- Hold up to brighten, hold down to dim
+- Good for recessed switches
+
+**Decoupled**
+- Full Home Assistant control
+- Create custom automations for button presses
+- Buttons fire events but don't affect output
+- **Important**: Device still works locally if HA is down (events still fire)
+
+### Configuring Input Behavior
+
+1. Navigate to **Settings** → **Devices & Services**
+2. Find and click the **Ubisys** integration
+3. Click **Configure** on your D1 device
+4. Select **Configure Device**
+5. Adjust D1 Advanced Options (phase mode, ballast) if needed
+6. Click **Submit**
+7. Select your desired **Input Behavior** preset
+8. Click **Submit**
+
+The configuration is written to the device's non-volatile memory and persists across:
+- ✅ Home Assistant restarts
+- ✅ ZHA integration reloads
+- ✅ Power outages
+
+### Using Decoupled Mode
+
+When using Decoupled mode, buttons don't directly control the light. Instead, they fire Home Assistant events that you can use in automations.
+
+**Setting up automations:**
+
+1. Navigate to **Settings** → **Automations & Scenes**
+2. Click **Create Automation**
+3. Choose **Device** as trigger
+4. Select your D1 device
+5. Choose the button event (e.g., "Button 1 short press")
+6. Add your desired actions
+
+**Example automation:**
+```yaml
+automation:
+  - alias: "D1 Button 1 Controls Multiple Lights"
+    trigger:
+      - platform: device
+        domain: ubisys
+        device_id: YOUR_DEVICE_ID
+        type: button_1_short_press
+    action:
+      - service: light.toggle
+        target:
+          entity_id:
+            - light.kitchen_dimmer
+            - light.dining_room
+```
+
+### Local Control vs. Decoupled
+
+**Important**: Unlike "smart bulb mode" in some integrations, the Ubisys D1 InputActions system maintains local control. Even in Decoupled mode, the device processes button presses locally and sends events to Home Assistant - it doesn't require HA to be online for the buttons to function. The difference is whether those button presses also directly control the output.
+
+This design philosophy ensures your switches remain responsive even if Home Assistant goes offline.
 
 ## Reference
 

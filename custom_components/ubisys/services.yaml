@@ -189,6 +189,205 @@ configure_d1_ballast:
           max: 254
           mode: box
 
+configure_d1_transition:
+  name: Configure D1 Transition Time
+  description: >
+    Configure the on/off transition time (dimming curve/ramp rate) for Ubisys D1 dimmer.
+
+
+    **What this does:**
+
+    Controls how quickly the light fades when turning on or off. Higher values create
+    smoother, slower fades.
+
+
+    **Time units:** 0.1 seconds (tenths of a second)
+
+
+    **Examples:**
+
+    - **0**: Instant on/off (no fade)
+
+    - **10**: 1 second fade
+
+    - **20**: 2 second fade
+
+    - **50**: 5 second fade
+
+    - **100**: 10 second fade
+
+
+    **Valid range:** 0-65535 (up to ~109 minutes)
+
+
+    **Note:** Settings are stored persistently in the device.
+  fields:
+    entity_id:
+      name: Light Entity
+      description: >
+        One or more Ubisys D1 light entities to configure.
+      required: true
+      selector:
+        entity:
+          domain: light
+          integration: ubisys
+          multiple: true
+    transition_time:
+      name: Transition Time (0.1s units)
+      description: >
+        Transition time in tenths of a second. 0=instant, 10=1s, 50=5s, etc.
+      required: true
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 65535
+          mode: box
+
+configure_d1_on_level:
+  name: Configure D1 On Level
+  description: >
+    Configure the turn-on and startup brightness levels for Ubisys D1 dimmer.
+
+
+    **On Level:** The brightness when the light is turned on
+
+    - **1-254**: Specific brightness level
+
+    - **255**: Use previous brightness (remembers last setting)
+
+
+    **Startup Level:** The brightness after power is restored
+
+    - **1-254**: Specific brightness level
+
+    - **255**: Use previous brightness
+
+
+    **Typical use cases:**
+
+    - Always turn on at 50%: on_level=127
+
+    - Remember last brightness: on_level=255
+
+    - Start dim after power outage: startup_level=50
+
+
+    **Note:** Settings are stored persistently in the device.
+  fields:
+    entity_id:
+      name: Light Entity
+      description: One or more Ubisys D1 light entities to configure.
+      required: true
+      selector:
+        entity:
+          domain: light
+          integration: ubisys
+          multiple: true
+    on_level:
+      name: On Level (optional)
+      description: >
+        Brightness level when turned on (1-254, or 255 for previous).
+        Leave empty to keep current setting.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+    startup_level:
+      name: Startup Level (optional)
+      description: >
+        Brightness level after power restore (1-254, or 255 for previous).
+        Leave empty to keep current setting.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 255
+          mode: box
+
+configure_d1_startup:
+  name: Configure D1 Startup Behavior
+  description: >
+    Configure the power-on state behavior for Ubisys D1 dimmer.
+
+
+    **What this does:**
+
+    Determines what happens to the light after power is restored (e.g., after a
+    power outage).
+
+
+    **Startup behaviors:**
+
+    - **off**: Light stays off after power restore
+
+    - **on**: Light turns on after power restore
+
+    - **toggle**: Light toggles from previous state
+
+    - **previous**: Light restores to state before power loss
+
+
+    **Note:** Settings are stored persistently in the device.
+  fields:
+    entity_id:
+      name: Light Entity
+      description: One or more Ubisys D1 light entities to configure.
+      required: true
+      selector:
+        entity:
+          domain: light
+          integration: ubisys
+          multiple: true
+    startup_on_off:
+      name: Startup Behavior
+      description: What the light should do after power is restored.
+      required: true
+      default: "previous"
+      selector:
+        select:
+          options:
+            - "off"
+            - "on"
+            - "toggle"
+            - "previous"
+
+get_d1_status:
+  name: Get D1 Status
+  description: >
+    Read diagnostic status from Ubisys D1 dimmer.
+
+
+    **What this returns:**
+
+    - Detected load type (forward/reverse phase control)
+
+    - Operational conditions (overload, capacitive, inductive load)
+
+
+    **When to use:**
+
+    - Troubleshooting phase mode issues
+
+    - Verifying the dimmer detected your load correctly
+
+    - Checking for overload conditions
+
+
+    **Note:** This is a read-only diagnostic service. Results are shown in logs
+    and returned as service response data.
+  fields:
+    entity_id:
+      name: Light Entity
+      description: The Ubisys D1 light entity to read status from.
+      required: true
+      selector:
+        entity:
+          domain: light
+          integration: ubisys
+
 
 # =============================================================================
 # J1 ADVANCED TUNING

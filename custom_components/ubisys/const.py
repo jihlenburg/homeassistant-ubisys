@@ -261,6 +261,39 @@ INPUT_ACTIONS_ATTR_ID: Final = DEVICE_SETUP_ATTR_INPUT_ACTIONS
 
 # DimmerSetup cluster attributes (Ubisys manufacturer-specific, D1 only)
 DIMMER_SETUP_ATTR_MODE: Final = 0x0002  # Phase control mode attribute
+DIMMER_SETUP_ATTR_STATUS: Final = 0x0001  # Read-only status/diagnostics
+
+# Level Control cluster attributes (standard ZCL 0x0008)
+# These control dimming behavior and are common across dimmers
+LEVEL_CONTROL_ATTR_ON_OFF_TRANSITION_TIME: Final = 0x0010  # Ramp rate in 0.1s
+LEVEL_CONTROL_ATTR_ON_LEVEL: Final = 0x0011  # Turn-on brightness (1-254)
+LEVEL_CONTROL_ATTR_STARTUP_LEVEL: Final = 0x4000  # Power-on brightness
+LEVEL_CONTROL_ATTR_OPTIONS: Final = 0x000F  # Command behavior options
+
+# On/Off cluster attributes (standard ZCL 0x0006)
+ON_OFF_ATTR_STARTUP_ON_OFF: Final = 0x4003  # Power-on state (on/off/previous)
+
+# Transition time limits
+TRANSITION_TIME_MIN: Final = 0  # Instant (no fade)
+TRANSITION_TIME_MAX: Final = 65535  # ~109 minutes max
+
+# Brightness level constants
+BRIGHTNESS_LEVEL_MIN: Final = 1
+BRIGHTNESS_LEVEL_MAX: Final = 254
+BRIGHTNESS_LEVEL_PREVIOUS: Final = 255  # Use previous level
+
+# Startup behavior values for StartupOnOff attribute
+STARTUP_ON_OFF_OFF: Final = 0x00  # Start OFF
+STARTUP_ON_OFF_ON: Final = 0x01  # Start ON
+STARTUP_ON_OFF_TOGGLE: Final = 0x02  # Toggle from previous
+STARTUP_ON_OFF_PREVIOUS: Final = 0xFF  # Restore previous state
+
+STARTUP_ON_OFF_VALUES: Final[dict[str, int]] = {
+    "off": STARTUP_ON_OFF_OFF,
+    "on": STARTUP_ON_OFF_ON,
+    "toggle": STARTUP_ON_OFF_TOGGLE,
+    "previous": STARTUP_ON_OFF_PREVIOUS,
+}
 
 # Endpoint IDs for different devices
 #
@@ -324,12 +357,16 @@ S1_DEVICE_SETUP_ENDPOINT: Final = (
 # Service identifiers used by the integration
 
 # Window covering services (J1)
-SERVICE_CALIBRATE_COVER: Final = "calibrate_cover"
+SERVICE_CALIBRATE_J1: Final = "calibrate_j1"
 
 # Dimmer services (D1)
 SERVICE_CONFIGURE_D1_PHASE_MODE: Final = "configure_d1_phase_mode"
 SERVICE_CONFIGURE_D1_BALLAST: Final = "configure_d1_ballast"
 SERVICE_CONFIGURE_D1_INPUTS: Final = "configure_d1_inputs"
+SERVICE_CONFIGURE_D1_TRANSITION: Final = "configure_d1_transition"
+SERVICE_CONFIGURE_D1_ON_LEVEL: Final = "configure_d1_on_level"
+SERVICE_CONFIGURE_D1_STARTUP: Final = "configure_d1_startup"
+SERVICE_GET_D1_STATUS: Final = "get_d1_status"
 SERVICE_TUNE_J1_ADVANCED: Final = "tune_j1_advanced"
 
 # Switch configuration (S1/S1-R)

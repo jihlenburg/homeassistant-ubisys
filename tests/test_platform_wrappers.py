@@ -151,7 +151,7 @@ async def test_find_zha_light_entity_returns_match(monkeypatch):
     )
 
     hass = SimpleNamespace(data={})
-    result = await light_mod._find_zha_light_entity(hass, "device-1")
+    result = await light_mod._find_zha_light_entity(hass, "device-1", "00:11:22:33")
     assert result == "light.zha_node"
 
 
@@ -213,7 +213,7 @@ async def test_find_zha_switch_entity_returns_match(monkeypatch):
     )
 
     hass = SimpleNamespace()
-    result = await switch_mod._find_zha_switch_entity(hass, "device-1")
+    result = await switch_mod._find_zha_switch_entity(hass, "device-1", "00:11:22:33")
     assert result == "switch.zha_node"
 
 
@@ -288,3 +288,628 @@ async def test_last_input_event_sensor_updates_history(monkeypatch):
 
     await sensor.async_will_remove_from_hass()
     assert not callbacks
+
+
+# =============================================================================
+# async_setup_entry tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_cover_setup_entry_skips_non_cover_model(monkeypatch):
+    """Cover setup skips D1 models (not a window covering)."""
+    hass = DummyHass()
+    async_add_entities = MagicMock()
+
+    config_entry = SimpleNamespace(
+        data={
+            "device_ieee": "00:11:22:33",
+            "device_id": "device-1",
+            "model": "D1",  # D1 is a light, not a cover
+        },
+        options={},
+    )
+
+    await cover_mod.async_setup_entry(hass, config_entry, async_add_entities)
+
+    # Should not create any entities
+    async_add_entities.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_light_setup_entry_skips_non_light_model(monkeypatch):
+    """Light setup skips J1 models (not a dimmer)."""
+    hass = DummyHass()
+    async_add_entities = MagicMock()
+
+    config_entry = SimpleNamespace(
+        data={
+            "device_ieee": "00:11:22:33",
+            "device_id": "device-1",
+            "model": "J1",  # J1 is a cover, not a light
+        },
+        options={},
+    )
+
+    await light_mod.async_setup_entry(hass, config_entry, async_add_entities)
+
+    # Should not create any entities
+    async_add_entities.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_switch_setup_entry_skips_non_switch_model(monkeypatch):
+    """Switch setup skips D1 models (not a switch)."""
+    hass = DummyHass()
+    async_add_entities = MagicMock()
+
+    config_entry = SimpleNamespace(
+        data={
+            "device_ieee": "00:11:22:33",
+            "device_id": "device-1",
+            "model": "D1",  # D1 is a light, not a switch
+        },
+        options={},
+    )
+
+    await switch_mod.async_setup_entry(hass, config_entry, async_add_entities)
+
+    # Should not create any entities
+    async_add_entities.assert_not_called()
+
+
+# =============================================================================
+# _find_zha_*_entity prediction path tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_find_zha_cover_entity_predicts_when_not_found(monkeypatch):
+    """Cover entity ID is predicted when ZHA entity not found."""
+    fake_entity_registry = object()
+    fake_device_registry = MagicMock()
+    fake_device = SimpleNamespace(name="My Cover", name_by_user=None)
+    fake_device_registry.async_get.return_value = fake_device
+
+    monkeypatch.setattr(
+        "custom_components.ubisys.cover.er.async_get",
+        lambda hass: fake_entity_registry,
+    )
+    monkeypatch.setattr(
+        "custom_components.ubisys.cover.er.async_entries_for_device",
+        lambda registry, device_id: [],  # No entities found
+    )
+    monkeypatch.setattr(
+        "homeassistant.helpers.device_registry.async_get",
+        lambda hass: fake_device_registry,
+    )
+
+    hass = DummyHass()
+    result = await cover_mod._find_zha_cover_entity(hass, "device-1", "00:11:22:33")
+
+    # Should predict entity ID based on device name
+    assert result == "cover.my_cover"
+
+
+@pytest.mark.asyncio
+async def test_find_zha_light_entity_predicts_when_not_found(monkeypatch):
+    """Light entity ID is predicted when ZHA entity not found."""
+    fake_entity_registry = object()
+    fake_device_registry = MagicMock()
+    fake_device = SimpleNamespace(name="My Light", name_by_user="Custom Name")
+    fake_device_registry.async_get.return_value = fake_device
+
+    monkeypatch.setattr(
+        "custom_components.ubisys.light.er.async_get",
+        lambda hass: fake_entity_registry,
+    )
+    monkeypatch.setattr(
+        "custom_components.ubisys.light.er.async_entries_for_device",
+        lambda registry, device_id: [],  # No entities found
+    )
+    monkeypatch.setattr(
+        "homeassistant.helpers.device_registry.async_get",
+        lambda hass: fake_device_registry,
+    )
+
+    hass = SimpleNamespace(data={})
+    result = await light_mod._find_zha_light_entity(hass, "device-1", "00:11:22:33")
+
+    # Should use name_by_user when available
+    assert result == "light.custom_name"
+
+
+@pytest.mark.asyncio
+async def test_find_zha_switch_entity_predicts_fallback_ieee(monkeypatch):
+    """Switch entity ID uses IEEE fallback when device has no name."""
+    fake_entity_registry = object()
+    fake_device_registry = MagicMock()
+    fake_device_registry.async_get.return_value = None  # Device not found
+
+    monkeypatch.setattr(
+        "custom_components.ubisys.switch.er.async_get",
+        lambda hass: fake_entity_registry,
+    )
+    monkeypatch.setattr(
+        "custom_components.ubisys.switch.er.async_entries_for_device",
+        lambda registry, device_id: [],  # No entities found
+    )
+    monkeypatch.setattr(
+        "homeassistant.helpers.device_registry.async_get",
+        lambda hass: fake_device_registry,
+    )
+
+    hass = SimpleNamespace()
+    result = await switch_mod._find_zha_switch_entity(hass, "device-1", "00:11:22:33")
+
+    # Should fallback to IEEE-based name
+    assert result == "switch.ubisys_00_11_22_33"
+
+
+# =============================================================================
+# _sync_state_from_zha when ZHA entity is None
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_cover_sync_state_zha_not_found():
+    """Cover sync handles missing ZHA entity gracefully."""
+    hass = DummyHass()
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_missing",
+        device_ieee="00:11",
+        shade_type="roller",
+    )
+    entity.hass = hass
+    entity.async_write_ha_state = MagicMock()
+
+    # ZHA entity doesn't exist
+    await entity._sync_state_from_zha()
+
+    assert entity._zha_entity_available is False
+    entity.async_write_ha_state.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_light_sync_state_zha_not_found():
+    """Light sync handles missing ZHA entity gracefully."""
+    hass = DummyHass()
+
+    entity = light_mod.UbisysLight(
+        hass=hass,
+        config_entry=SimpleNamespace(data={"model": "D1"}),
+        zha_entity_id="light.zha_missing",
+        device_ieee="00:22",
+        model="D1",
+    )
+    entity.hass = hass
+    entity.async_write_ha_state = MagicMock()
+
+    # ZHA entity doesn't exist
+    await entity._sync_state_from_zha()
+
+    assert entity._zha_entity_available is False
+    entity.async_write_ha_state.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_switch_sync_state_zha_not_found():
+    """Switch sync handles missing ZHA entity gracefully."""
+    hass = DummyHass()
+
+    entity = switch_mod.UbisysSwitch(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="switch.zha_missing",
+        device_ieee="00:33",
+    )
+    entity.hass = hass
+    entity.async_write_ha_state = MagicMock()
+
+    # ZHA entity doesn't exist
+    await entity._sync_state_from_zha()
+
+    assert entity._zha_entity_available is False
+    entity.async_write_ha_state.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_cover_sync_state_zha_reappears():
+    """Cover sync handles ZHA entity reappearing."""
+    hass = DummyHass()
+    hass.states._states["cover.zha_test"] = SimpleNamespace(
+        state="open", attributes={"current_position": 100}
+    )
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_test",
+        device_ieee="00:11",
+        shade_type="roller",
+    )
+    entity.hass = hass
+    entity._zha_entity_available = False  # Was unavailable
+    entity.async_write_ha_state = MagicMock()
+
+    await entity._sync_state_from_zha()
+
+    # Should now be available
+    assert entity._zha_entity_available is True
+    entity.async_write_ha_state.assert_called_once()
+
+
+# =============================================================================
+# available property tests
+# =============================================================================
+
+
+def test_cover_available_when_zha_exists():
+    """Cover is available when ZHA entity exists."""
+    hass = DummyHass()
+    hass.states._states["cover.zha_test"] = SimpleNamespace(state="open", attributes={})
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_test",
+        device_ieee="00:11",
+        shade_type="roller",
+    )
+
+    assert entity.available is True
+
+
+def test_cover_unavailable_when_zha_missing():
+    """Cover is unavailable when ZHA entity missing."""
+    hass = DummyHass()
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_missing",
+        device_ieee="00:11",
+        shade_type="roller",
+    )
+
+    assert entity.available is False
+
+
+def test_cover_unavailable_when_zha_unavailable():
+    """Cover is unavailable when ZHA entity is unavailable."""
+    hass = DummyHass()
+    hass.states._states["cover.zha_test"] = SimpleNamespace(
+        state="unavailable", attributes={}
+    )
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_test",
+        device_ieee="00:11",
+        shade_type="roller",
+    )
+
+    assert entity.available is False
+
+
+def test_light_unavailable_when_zha_unknown():
+    """Light is unavailable when ZHA entity state is unknown."""
+    hass = DummyHass()
+    hass.states._states["light.zha_test"] = SimpleNamespace(
+        state="unknown", attributes={}
+    )
+
+    entity = light_mod.UbisysLight(
+        hass=hass,
+        config_entry=SimpleNamespace(data={"model": "D1"}),
+        zha_entity_id="light.zha_test",
+        device_ieee="00:22",
+        model="D1",
+    )
+
+    assert entity.available is False
+
+
+def test_switch_available_when_zha_exists():
+    """Switch is available when ZHA entity exists."""
+    hass = DummyHass()
+    hass.states._states["switch.zha_test"] = SimpleNamespace(state="on", attributes={})
+
+    entity = switch_mod.UbisysSwitch(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="switch.zha_test",
+        device_ieee="00:33",
+    )
+
+    assert entity.available is True
+
+
+# =============================================================================
+# extra_state_attributes tests
+# =============================================================================
+
+
+def test_cover_extra_state_attributes():
+    """Cover extra_state_attributes includes expected keys."""
+    hass = DummyHass()
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_test",
+        device_ieee="00:11",
+        shade_type="venetian",
+    )
+    entity._zha_entity_available = True
+
+    attrs = entity.extra_state_attributes
+
+    assert attrs["shade_type"] == "venetian"
+    assert attrs["zha_entity_id"] == "cover.zha_test"
+    assert attrs["integration"] == "ubisys"
+    assert "unavailable_reason" not in attrs
+
+
+def test_cover_extra_state_attributes_unavailable():
+    """Cover extra_state_attributes includes unavailable_reason when unavailable."""
+    hass = DummyHass()
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_test",
+        device_ieee="00:11",
+        shade_type="roller",
+    )
+    entity._zha_entity_available = False
+
+    attrs = entity.extra_state_attributes
+
+    assert "unavailable_reason" in attrs
+
+
+def test_light_extra_state_attributes():
+    """Light extra_state_attributes includes expected keys."""
+    hass = DummyHass()
+
+    entity = light_mod.UbisysLight(
+        hass=hass,
+        config_entry=SimpleNamespace(data={"model": "D1"}),
+        zha_entity_id="light.zha_test",
+        device_ieee="00:22",
+        model="D1",
+    )
+    entity._zha_entity_available = True
+
+    attrs = entity.extra_state_attributes
+
+    assert attrs["model"] == "D1"
+    assert attrs["zha_entity_id"] == "light.zha_test"
+    assert attrs["integration"] == "ubisys"
+
+
+def test_switch_extra_state_attributes():
+    """Switch extra_state_attributes includes expected keys."""
+    hass = DummyHass()
+
+    entity = switch_mod.UbisysSwitch(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="switch.zha_test",
+        device_ieee="00:33",
+    )
+    entity._zha_entity_available = True
+
+    attrs = entity.extra_state_attributes
+
+    assert attrs["zha_entity_id"] == "switch.zha_test"
+    assert attrs["integration"] == "ubisys"
+
+
+# =============================================================================
+# Additional cover command tests
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_cover_close_cover():
+    """Cover async_close_cover delegates to ZHA."""
+    hass = DummyHass()
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_test",
+        device_ieee="00:11",
+        shade_type="roller",
+    )
+    entity.hass = hass
+
+    await entity.async_close_cover()
+
+    hass.services.async_call.assert_awaited_with(
+        "cover", "close_cover", {"entity_id": "cover.zha_test"}, blocking=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_cover_stop_cover():
+    """Cover async_stop_cover delegates to ZHA."""
+    hass = DummyHass()
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_test",
+        device_ieee="00:11",
+        shade_type="roller",
+    )
+    entity.hass = hass
+
+    await entity.async_stop_cover()
+
+    hass.services.async_call.assert_awaited_with(
+        "cover", "stop_cover", {"entity_id": "cover.zha_test"}, blocking=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_cover_close_cover_tilt_venetian():
+    """Cover async_close_cover_tilt delegates for venetian shade."""
+    hass = DummyHass()
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_test",
+        device_ieee="00:11",
+        shade_type="venetian",
+    )
+    entity.hass = hass
+
+    await entity.async_close_cover_tilt()
+
+    hass.services.async_call.assert_awaited_with(
+        "cover", "close_cover_tilt", {"entity_id": "cover.zha_test"}, blocking=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_cover_close_cover_tilt_skips_for_roller():
+    """Cover async_close_cover_tilt skips for roller shade."""
+    hass = DummyHass()
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_roller",
+        device_ieee="00:22",
+        shade_type="roller",
+    )
+    entity.hass = hass
+
+    await entity.async_close_cover_tilt()
+
+    hass.services.async_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cover_stop_cover_tilt_venetian():
+    """Cover async_stop_cover_tilt delegates for venetian shade."""
+    hass = DummyHass()
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_test",
+        device_ieee="00:11",
+        shade_type="venetian",
+    )
+    entity.hass = hass
+
+    await entity.async_stop_cover_tilt()
+
+    hass.services.async_call.assert_awaited_with(
+        "cover", "stop_cover_tilt", {"entity_id": "cover.zha_test"}, blocking=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_cover_stop_cover_tilt_skips_for_roller():
+    """Cover async_stop_cover_tilt skips for roller shade."""
+    hass = DummyHass()
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_roller",
+        device_ieee="00:22",
+        shade_type="roller",
+    )
+    entity.hass = hass
+
+    await entity.async_stop_cover_tilt()
+
+    hass.services.async_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cover_set_tilt_position_venetian():
+    """Cover async_set_cover_tilt_position delegates for venetian shade."""
+    hass = DummyHass()
+
+    entity = cover_mod.UbisysCover(
+        hass=hass,
+        config_entry=SimpleNamespace(data={}),
+        zha_entity_id="cover.zha_test",
+        device_ieee="00:11",
+        shade_type="venetian",
+    )
+    entity.hass = hass
+
+    await entity.async_set_cover_tilt_position(tilt_position=45)
+
+    hass.services.async_call.assert_awaited_with(
+        "cover",
+        "set_cover_tilt_position",
+        {"entity_id": "cover.zha_test", "tilt_position": 45},
+        blocking=True,
+    )
+
+
+# =============================================================================
+# Light turn_on without parameters
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_light_turn_on_minimal():
+    """Light async_turn_on works without extra parameters."""
+    hass = DummyHass()
+
+    entity = light_mod.UbisysLight(
+        hass=hass,
+        config_entry=SimpleNamespace(data={"model": "D1"}),
+        zha_entity_id="light.zha_test",
+        device_ieee="00:22",
+        model="D1",
+    )
+    entity.hass = hass
+
+    await entity.async_turn_on()
+
+    hass.services.async_call.assert_awaited_with(
+        "light",
+        "turn_on",
+        {"entity_id": "light.zha_test"},
+        blocking=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_light_turn_off_minimal():
+    """Light async_turn_off works without extra parameters."""
+    hass = DummyHass()
+
+    entity = light_mod.UbisysLight(
+        hass=hass,
+        config_entry=SimpleNamespace(data={"model": "D1"}),
+        zha_entity_id="light.zha_test",
+        device_ieee="00:22",
+        model="D1",
+    )
+    entity.hass = hass
+
+    await entity.async_turn_off()
+
+    hass.services.async_call.assert_awaited_with(
+        "light",
+        "turn_off",
+        {"entity_id": "light.zha_test"},
+        blocking=True,
+    )

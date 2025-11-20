@@ -674,11 +674,15 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
             _LOGGER.warning("No presets available for model %s", model)
             return self.async_abort(reason="no_presets")
 
-        # Build preset choices (preset_value -> "Name - Description")
+        # Build preset choices (preset_value -> "Name") and info lines for description
+        # The dropdown shows short names, while the description shows full explanations
         preset_choices = {}
+        preset_info_lines = []
         for preset in available_presets:
             name, description = InputConfigPresets.get_preset_info(preset)
             preset_choices[preset.value] = f"{name}"
+            # Build markdown-formatted info line for description
+            preset_info_lines.append(f"• **{name}**: {description}")
 
         # Get current preset (if configured)
         current_preset = self.config_entry.data.get(CONF_INPUT_CONFIG_PRESET)
@@ -715,6 +719,7 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
             description_placeholders={
                 "device_name": device_name,
                 "model": model,
+                "preset_info": "\n".join(preset_info_lines),
             },
         )
 
@@ -847,7 +852,13 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
     async def async_step_j1_advanced(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Advanced tuning for J1 via options flow (wraps service)."""
+        """Advanced tuning for J1 via options flow (wraps service).
+
+        After completing advanced tuning, continues to input configuration
+        step where users can configure physical button behavior presets.
+
+        Flow: configure → j1_advanced → input_config
+        """
         errors: dict[str, str] = {}
 
         model = self.config_entry.data.get("model", "")
@@ -867,11 +878,13 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
                 if user_input.get(key) is not None:
                     data[key] = user_input[key]
             try:
-                await self.hass.services.async_call(
-                    DOMAIN, SERVICE_TUNE_J1_ADVANCED, data, blocking=True
-                )
-                # Finished options
-                return self.async_create_entry(title="", data={})
+                # Only call service if any parameters were provided
+                if len(data) > 1:  # More than just entity_id
+                    await self.hass.services.async_call(
+                        DOMAIN, SERVICE_TUNE_J1_ADVANCED, data, blocking=True
+                    )
+                # Continue to input configuration step
+                return await self.async_step_input_config(None)
             except Exception as err:
                 _LOGGER.error("Failed to tune J1: %s", err, exc_info=True)
                 errors["base"] = "config_write_failed"
@@ -893,5 +906,10 @@ class UbisysOptionsFlow(config_entries.OptionsFlow):
             }
         )
         return self.async_show_form(
-            step_id="j1_advanced", data_schema=data_schema, errors=errors
+            step_id="j1_advanced",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={
+                "device_name": self.config_entry.data.get("name", "Ubisys Device"),
+            },
         )

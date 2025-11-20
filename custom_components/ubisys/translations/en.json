@@ -50,9 +50,28 @@
       },
       "input_config": {
         "title": "Configure Physical Inputs",
-        "description": "Select how the physical buttons/switches on {device_name} should behave. This configures the device's InputActions and determines what commands are sent when you press buttons.",
+        "description": "Select how the physical buttons/switches on {device_name} should behave.\n\n**Available presets:**\n{preset_info}",
         "data": {
           "input_config_preset": "Input Behavior",
+          "verbose_info_logging": "Verbose info logging",
+          "verbose_input_logging": "Verbose input event logging"
+        }
+      },
+      "j1_advanced": {
+        "title": "J1 Advanced Tuning",
+        "description": "Advanced tuning for {device_name}. Leave values empty to keep current settings. These parameters are stored persistently in the device.",
+        "data": {
+          "turnaround_guard_time": "Turnaround Guard Time (50ms units)",
+          "inactive_power_threshold": "Inactive Power Threshold (mW)",
+          "startup_steps": "Startup Steps (AC waves)",
+          "additional_steps": "Additional Steps (%)"
+        }
+      },
+      "configure": {
+        "title": "Configure {device_name}",
+        "description": "Configure shade type and logging options for your Ubisys J1 window covering.",
+        "data": {
+          "shade_type": "Shade Type",
           "verbose_info_logging": "Verbose info logging",
           "verbose_input_logging": "Verbose input event logging"
         }
@@ -84,9 +103,18 @@
         "s1_on_only": "On when pressed",
         "s1_off_only": "Off when pressed",
         "s1_rocker": "On/Off button pair",
+        "s1_toggle_dim": "Toggle + Dim (dimmer control)",
+        "s1_up_down": "Brightness up/down buttons",
+        "s1_decoupled": "Decoupled (HA control only)",
         "d1_toggle_dim": "Toggle + Dim (default)",
         "d1_up_down": "Separate up/down buttons",
-        "d1_rocker": "Rocker switch (continuous dimming)"
+        "d1_rocker": "Rocker switch (continuous dimming)",
+        "d1_step": "Step dimming (latching switch)",
+        "d1_decoupled": "Decoupled (HA control only)",
+        "j1_cover_rocker": "Up/Down buttons (default)",
+        "j1_toggle": "Single button cycle",
+        "j1_alternating": "Alternating up/down (latching switch)",
+        "j1_decoupled": "Decoupled (HA control only)"
       }
     }
   },

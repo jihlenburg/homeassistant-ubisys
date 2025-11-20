@@ -59,12 +59,24 @@ from .const import (
     BALLAST_ATTR_MIN_LEVEL,
     BALLAST_LEVEL_MAX,
     BALLAST_LEVEL_MIN,
+    BRIGHTNESS_LEVEL_MIN,
+    BRIGHTNESS_LEVEL_PREVIOUS,
     CLUSTER_BALLAST,
     CLUSTER_DIMMER_SETUP,
+    CLUSTER_LEVEL_CONTROL,
+    CLUSTER_ON_OFF,
     D1_DIMMABLE_LIGHT_ENDPOINT,
     DIMMER_SETUP_ATTR_MODE,
+    DIMMER_SETUP_ATTR_STATUS,
     DOMAIN,
+    LEVEL_CONTROL_ATTR_ON_LEVEL,
+    LEVEL_CONTROL_ATTR_ON_OFF_TRANSITION_TIME,
+    LEVEL_CONTROL_ATTR_STARTUP_LEVEL,
+    ON_OFF_ATTR_STARTUP_ON_OFF,
     PHASE_MODES,
+    STARTUP_ON_OFF_VALUES,
+    TRANSITION_TIME_MAX,
+    TRANSITION_TIME_MIN,
     UBISYS_MANUFACTURER_CODE,
 )
 from .helpers import (
@@ -508,3 +520,493 @@ async def async_configure_inputs(
     # 2. Access DeviceSetup cluster (0xFC00) on endpoint 232
     # 3. Write input_configurations (0x0000) and optionally input_actions (0x0001)
     # 4. Verify write succeeded and log result
+
+
+async def async_configure_transition_time(
+    hass: HomeAssistant,
+    entity_id: str,
+    transition_time: int,
+) -> None:
+    """Configure D1 on/off transition time (ramp rate).
+
+    This controls how quickly the light fades on or off - the "dimming curve"
+    that users typically ask about. Higher values = slower, smoother fades.
+
+    Units: 0.1 seconds (tenths of a second)
+    Examples:
+        - 0 = Instant on/off (no fade)
+        - 10 = 1 second fade
+        - 50 = 5 second fade
+        - 100 = 10 second fade
+
+    Range: 0-65535 (0 to ~109 minutes)
+
+    Technical Details:
+        This writes the OnOffTransitionTime attribute (0x0010) in the Level
+        Control cluster (0x0008). This is a standard ZCL attribute, not
+        manufacturer-specific.
+
+    Args:
+        hass: Home Assistant instance
+        entity_id: D1 light entity ID (e.g., "light.bedroom_d1")
+        transition_time: Transition time in 0.1s units (0-65535)
+
+    Raises:
+        HomeAssistantError: If validation fails or write fails
+
+    Example:
+        # Set 2-second fade
+        >>> await async_configure_transition_time(
+        ...     hass, "light.bedroom_d1", 20
+        ... )
+    """
+    info_banner(
+        _LOGGER,
+        "D1 Transition Time",
+        entity_id=entity_id,
+        transition_time=transition_time,
+    )
+    sw = Stopwatch()
+
+    # Step 1: Validate entity
+    await validate_ubisys_entity(hass, entity_id, expected_domain="light")
+    kv(_LOGGER, _LOGGER.level, "Entity validated", entity_id=entity_id)
+
+    # Step 2: Validate transition time range
+    if not (TRANSITION_TIME_MIN <= transition_time <= TRANSITION_TIME_MAX):
+        raise HomeAssistantError(
+            f"transition_time must be between {TRANSITION_TIME_MIN} and "
+            f"{TRANSITION_TIME_MAX}, got {transition_time}"
+        )
+
+    _LOGGER.debug(
+        "D1 Config: ✓ Transition time validated: %d (%.1fs)",
+        transition_time,
+        transition_time / 10.0,
+    )
+
+    # Step 3: Get device info
+    device_id, device_ieee, model = await get_entity_device_info(hass, entity_id)
+    kv(_LOGGER, _LOGGER.level, "Device info", model=model, ieee=device_ieee)
+
+    # Step 4: Verify this is a D1 model
+    if model not in ["D1", "D1-R"]:
+        raise HomeAssistantError(
+            f"Entity {entity_id} is not a D1 dimmer (model: {model}). "
+            f"Transition time configuration only applies to D1/D1-R models."
+        )
+
+    lock = _get_d1_lock(hass, device_ieee)
+
+    try:
+        async with lock:
+            cluster = await get_cluster(
+                hass,
+                device_ieee,
+                CLUSTER_LEVEL_CONTROL,
+                D1_DIMMABLE_LIGHT_ENDPOINT,
+                "LevelControl",
+            )
+
+            if not cluster:
+                raise HomeAssistantError(
+                    f"Could not access Level Control cluster for {entity_id}. "
+                    f"Ensure the device is online."
+                )
+            kv(
+                _LOGGER,
+                _LOGGER.level,
+                "LevelControl accessed",
+                endpoint=D1_DIMMABLE_LIGHT_ENDPOINT,
+            )
+
+            await async_write_and_verify_attrs(
+                cluster,
+                {LEVEL_CONTROL_ATTR_ON_OFF_TRANSITION_TIME: transition_time},
+            )
+            kv(
+                _LOGGER,
+                _LOGGER.level,
+                "Transition time set",
+                value=transition_time,
+                seconds=round(transition_time / 10.0, 1),
+                elapsed_s=round(sw.elapsed, 1),
+            )
+    except HomeAssistantError:
+        raise
+    except Exception as err:
+        _LOGGER.error("D1 Config: Failed to write transition time: %s", err)
+        raise HomeAssistantError(
+            f"Failed to configure transition time for {entity_id}: {err}"
+        ) from err
+
+
+async def async_configure_on_level(
+    hass: HomeAssistant,
+    entity_id: str,
+    on_level: int | None = None,
+    startup_level: int | None = None,
+) -> None:
+    """Configure D1 turn-on and startup brightness levels.
+
+    on_level: The brightness level when the light is turned on
+        - Range: 1-254 (specific brightness)
+        - 255: Use previous brightness (before it was turned off)
+
+    startup_level: The brightness level after power loss/restore
+        - Range: 1-254 (specific brightness)
+        - 255: Use previous brightness (before power loss)
+
+    Technical Details:
+        - on_level → OnLevel attribute (0x0011) in Level Control cluster
+        - startup_level → StartupLevel attribute (0x4000) in Level Control cluster
+
+    Args:
+        hass: Home Assistant instance
+        entity_id: D1 light entity ID
+        on_level: Turn-on brightness (1-255), or None to leave unchanged
+        startup_level: Power-on brightness (1-255), or None to leave unchanged
+
+    Raises:
+        HomeAssistantError: If validation fails or write fails
+
+    Example:
+        # Always turn on at 50% brightness
+        >>> await async_configure_on_level(
+        ...     hass, "light.bedroom_d1", on_level=127
+        ... )
+
+        # Remember previous brightness
+        >>> await async_configure_on_level(
+        ...     hass, "light.bedroom_d1", on_level=255
+        ... )
+    """
+    info_banner(
+        _LOGGER,
+        "D1 On Level",
+        entity_id=entity_id,
+        on_level=on_level,
+        startup_level=startup_level,
+    )
+    sw = Stopwatch()
+
+    # Step 1: Validate entity
+    await validate_ubisys_entity(hass, entity_id, expected_domain="light")
+    kv(_LOGGER, _LOGGER.level, "Entity validated", entity_id=entity_id)
+
+    # Step 2: Validate parameters
+    if on_level is None and startup_level is None:
+        raise HomeAssistantError(
+            "At least one of on_level or startup_level must be specified"
+        )
+
+    # Validate on_level range (1-255, where 255 = previous)
+    if on_level is not None and not (
+        BRIGHTNESS_LEVEL_MIN <= on_level <= BRIGHTNESS_LEVEL_PREVIOUS
+    ):
+        raise HomeAssistantError(
+            f"on_level must be between {BRIGHTNESS_LEVEL_MIN} and "
+            f"{BRIGHTNESS_LEVEL_PREVIOUS}, got {on_level}"
+        )
+
+    # Validate startup_level range
+    if startup_level is not None and not (
+        BRIGHTNESS_LEVEL_MIN <= startup_level <= BRIGHTNESS_LEVEL_PREVIOUS
+    ):
+        raise HomeAssistantError(
+            f"startup_level must be between {BRIGHTNESS_LEVEL_MIN} and "
+            f"{BRIGHTNESS_LEVEL_PREVIOUS}, got {startup_level}"
+        )
+
+    _LOGGER.debug("D1 Config: ✓ Level parameter validation passed")
+
+    # Step 3: Get device info
+    device_id, device_ieee, model = await get_entity_device_info(hass, entity_id)
+    kv(_LOGGER, _LOGGER.level, "Device info", model=model, ieee=device_ieee)
+
+    # Step 4: Verify this is a D1 model
+    if model not in ["D1", "D1-R"]:
+        raise HomeAssistantError(
+            f"Entity {entity_id} is not a D1 dimmer (model: {model}). "
+            f"On level configuration only applies to D1/D1-R models."
+        )
+
+    lock = _get_d1_lock(hass, device_ieee)
+
+    try:
+        async with lock:
+            cluster = await get_cluster(
+                hass,
+                device_ieee,
+                CLUSTER_LEVEL_CONTROL,
+                D1_DIMMABLE_LIGHT_ENDPOINT,
+                "LevelControl",
+            )
+
+            if not cluster:
+                raise HomeAssistantError(
+                    f"Could not access Level Control cluster for {entity_id}. "
+                    f"Ensure the device is online."
+                )
+
+            attributes_to_write = {}
+            if on_level is not None:
+                attributes_to_write[LEVEL_CONTROL_ATTR_ON_LEVEL] = on_level
+            if startup_level is not None:
+                attributes_to_write[LEVEL_CONTROL_ATTR_STARTUP_LEVEL] = startup_level
+
+            _LOGGER.debug(
+                "D1 Config: Writing level attributes: %s",
+                attributes_to_write,
+            )
+
+            await async_write_and_verify_attrs(cluster, attributes_to_write)
+
+            changes = []
+            if on_level is not None:
+                label = "previous" if on_level == 255 else str(on_level)
+                changes.append(f"on_level={label}")
+            if startup_level is not None:
+                label = "previous" if startup_level == 255 else str(startup_level)
+                changes.append(f"startup_level={label}")
+
+            kv(
+                _LOGGER,
+                _LOGGER.level,
+                "Levels set",
+                changes=", ".join(changes),
+                elapsed_s=round(sw.elapsed, 1),
+            )
+    except HomeAssistantError:
+        raise
+    except Exception as err:
+        _LOGGER.error("D1 Config: Failed to write level configuration: %s", err)
+        raise HomeAssistantError(
+            f"Failed to configure on level for {entity_id}: {err}"
+        ) from err
+
+
+async def async_configure_startup(
+    hass: HomeAssistant,
+    entity_id: str,
+    startup_on_off: str,
+) -> None:
+    """Configure D1 power-on state behavior.
+
+    This determines what the light does after power is restored (e.g., after
+    a power outage).
+
+    startup_on_off values:
+        - "off": Light stays off after power restore
+        - "on": Light turns on after power restore
+        - "toggle": Light toggles from previous state
+        - "previous": Light restores to state before power loss
+
+    Technical Details:
+        Writes StartupOnOff attribute (0x4003) in On/Off cluster (0x0006).
+
+    Args:
+        hass: Home Assistant instance
+        entity_id: D1 light entity ID
+        startup_on_off: Power-on behavior ("off", "on", "toggle", "previous")
+
+    Raises:
+        HomeAssistantError: If validation fails or write fails
+
+    Example:
+        # Always start off after power restore
+        >>> await async_configure_startup(
+        ...     hass, "light.bedroom_d1", "off"
+        ... )
+
+        # Restore previous state
+        >>> await async_configure_startup(
+        ...     hass, "light.bedroom_d1", "previous"
+        ... )
+    """
+    info_banner(
+        _LOGGER,
+        "D1 Startup Config",
+        entity_id=entity_id,
+        startup_on_off=startup_on_off,
+    )
+    sw = Stopwatch()
+
+    # Step 1: Validate entity
+    await validate_ubisys_entity(hass, entity_id, expected_domain="light")
+    kv(_LOGGER, _LOGGER.level, "Entity validated", entity_id=entity_id)
+
+    # Step 2: Validate startup_on_off value
+    if startup_on_off not in STARTUP_ON_OFF_VALUES:
+        raise HomeAssistantError(
+            f"Invalid startup_on_off '{startup_on_off}'. "
+            f"Valid values: {', '.join(STARTUP_ON_OFF_VALUES.keys())}"
+        )
+
+    startup_value = STARTUP_ON_OFF_VALUES[startup_on_off]
+    _LOGGER.debug(
+        "D1 Config: ✓ Startup on/off validated: %s = 0x%02X",
+        startup_on_off,
+        startup_value,
+    )
+
+    # Step 3: Get device info
+    device_id, device_ieee, model = await get_entity_device_info(hass, entity_id)
+    kv(_LOGGER, _LOGGER.level, "Device info", model=model, ieee=device_ieee)
+
+    # Step 4: Verify this is a D1 model
+    if model not in ["D1", "D1-R"]:
+        raise HomeAssistantError(
+            f"Entity {entity_id} is not a D1 dimmer (model: {model}). "
+            f"Startup configuration only applies to D1/D1-R models."
+        )
+
+    lock = _get_d1_lock(hass, device_ieee)
+
+    try:
+        async with lock:
+            cluster = await get_cluster(
+                hass,
+                device_ieee,
+                CLUSTER_ON_OFF,
+                D1_DIMMABLE_LIGHT_ENDPOINT,
+                "OnOff",
+            )
+
+            if not cluster:
+                raise HomeAssistantError(
+                    f"Could not access On/Off cluster for {entity_id}. "
+                    f"Ensure the device is online."
+                )
+            kv(
+                _LOGGER,
+                _LOGGER.level,
+                "OnOff accessed",
+                endpoint=D1_DIMMABLE_LIGHT_ENDPOINT,
+            )
+
+            await async_write_and_verify_attrs(
+                cluster,
+                {ON_OFF_ATTR_STARTUP_ON_OFF: startup_value},
+            )
+            kv(
+                _LOGGER,
+                _LOGGER.level,
+                "Startup behavior set",
+                startup_on_off=startup_on_off,
+                elapsed_s=round(sw.elapsed, 1),
+            )
+    except HomeAssistantError:
+        raise
+    except Exception as err:
+        _LOGGER.error("D1 Config: Failed to write startup configuration: %s", err)
+        raise HomeAssistantError(
+            f"Failed to configure startup behavior for {entity_id}: {err}"
+        ) from err
+
+
+async def async_get_status(
+    hass: HomeAssistant,
+    entity_id: str,
+) -> dict[str, int | str | bool]:
+    """Read D1 dimmer status and diagnostics.
+
+    Returns read-only diagnostic information from the D1's DimmerSetup
+    cluster Status attribute.
+
+    Status bits indicate:
+        - Detected load type (forward/reverse phase control)
+        - Operational conditions (overload, capacitive, inductive)
+
+    This is useful for troubleshooting phase mode issues - you can see
+    what the dimmer actually detected about your connected load.
+
+    Returns:
+        Dictionary with status information:
+        {
+            "raw_status": <int>,
+            "forward_phase_control": <bool>,
+            "reverse_phase_control": <bool>,
+            "overload": <bool>,
+            "capacitive_load": <bool>,
+            "inductive_load": <bool>,
+        }
+
+    Raises:
+        HomeAssistantError: If entity validation fails or read fails
+    """
+    info_banner(_LOGGER, "D1 Status Read", entity_id=entity_id)
+    sw = Stopwatch()
+
+    # Step 1: Validate entity
+    await validate_ubisys_entity(hass, entity_id, expected_domain="light")
+    kv(_LOGGER, _LOGGER.level, "Entity validated", entity_id=entity_id)
+
+    # Step 2: Get device info
+    device_id, device_ieee, model = await get_entity_device_info(hass, entity_id)
+    kv(_LOGGER, _LOGGER.level, "Device info", model=model, ieee=device_ieee)
+
+    # Step 3: Verify this is a D1 model
+    if model not in ["D1", "D1-R"]:
+        raise HomeAssistantError(
+            f"Entity {entity_id} is not a D1 dimmer (model: {model}). "
+            f"Status read only applies to D1/D1-R models."
+        )
+
+    try:
+        cluster = await get_cluster(
+            hass,
+            device_ieee,
+            CLUSTER_DIMMER_SETUP,
+            D1_DIMMABLE_LIGHT_ENDPOINT,
+            "DimmerSetup",
+        )
+
+        if not cluster:
+            raise HomeAssistantError(
+                f"Could not access DimmerSetup cluster for {entity_id}. "
+                f"Ensure the device is online and the D1 quirk is loaded."
+            )
+
+        # Read status attribute
+        result = await cluster.read_attributes(
+            [DIMMER_SETUP_ATTR_STATUS],
+            manufacturer=UBISYS_MANUFACTURER_CODE,
+        )
+
+        if not result or DIMMER_SETUP_ATTR_STATUS not in result[0]:
+            raise HomeAssistantError(
+                f"Failed to read status from {entity_id}. "
+                f"The device may not support this attribute."
+            )
+
+        raw_status = result[0][DIMMER_SETUP_ATTR_STATUS]
+
+        # Parse status bits based on Zigbee2MQTT D1 documentation
+        # Bits: 0=forward, 1=reverse, 2=overload, 3=capacitive, 4=inductive
+        status = {
+            "raw_status": raw_status,
+            "forward_phase_control": bool(raw_status & 0x01),
+            "reverse_phase_control": bool(raw_status & 0x02),
+            "overload": bool(raw_status & 0x04),
+            "capacitive_load": bool(raw_status & 0x08),
+            "inductive_load": bool(raw_status & 0x10),
+        }
+
+        kv(
+            _LOGGER,
+            _LOGGER.level,
+            "Status read",
+            raw=hex(raw_status),
+            elapsed_s=round(sw.elapsed, 1),
+        )
+
+        return status
+
+    except HomeAssistantError:
+        raise
+    except Exception as err:
+        _LOGGER.error("D1 Config: Failed to read status: %s", err)
+        raise HomeAssistantError(
+            f"Failed to read status from {entity_id}: {err}"
+        ) from err

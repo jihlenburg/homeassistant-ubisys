@@ -588,23 +588,46 @@ async def async_setup_input_monitoring(
     )
 
 
-async def async_unload_input_monitoring(hass: HomeAssistant) -> None:
-    """Unload all input monitors.
+async def async_unload_input_monitoring(
+    hass: HomeAssistant, device_ieee: str | None = None
+) -> None:
+    """Unload input monitors for a specific device or all devices.
 
     Called during integration unload to clean up resources.
 
     Args:
         hass: Home Assistant instance
+        device_ieee: If provided, only unload monitor for this device.
+                     If None, unload all monitors (for full integration unload).
     """
     monitors = hass.data.get(DOMAIN, {}).get("input_monitors", [])
 
-    for monitor in monitors:
-        await monitor.async_stop()
+    if device_ieee:
+        # Unload only the monitor for the specific device
+        remaining_monitors = []
+        for monitor in monitors:
+            if monitor.device_ieee == device_ieee:
+                await monitor.async_stop()
+                _LOGGER.log(
+                    logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+                    "Unloaded input monitoring for device: %s",
+                    device_ieee,
+                )
+            else:
+                remaining_monitors.append(monitor)
 
-    if DOMAIN in hass.data and "input_monitors" in hass.data[DOMAIN]:
-        del hass.data[DOMAIN]["input_monitors"]
+        # Update the list with remaining monitors
+        if DOMAIN in hass.data:
+            hass.data[DOMAIN]["input_monitors"] = remaining_monitors
+    else:
+        # Unload all monitors (backward compatibility)
+        for monitor in monitors:
+            await monitor.async_stop()
 
-    _LOGGER.log(
-        logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
-        "Unloaded input monitoring",
-    )
+        if DOMAIN in hass.data and "input_monitors" in hass.data[DOMAIN]:
+            del hass.data[DOMAIN]["input_monitors"]
+
+        _LOGGER.log(
+            logging.INFO if is_verbose_info_logging(hass) else logging.DEBUG,
+            "Unloaded all input monitoring",
+        )

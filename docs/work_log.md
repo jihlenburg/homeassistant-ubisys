@@ -209,3 +209,213 @@ await cluster.read_attributes([0x1002])
 
 Always verify parameter names against actual Home Assistant API before releasing.
 The v1.2.8 incident used `add_config_entry` instead of `add_config_entry_id`.
+
+## Input Configuration Presets
+
+### Preset Architecture
+
+Input presets are defined in `input_config.py` with three key components:
+
+1. **InputConfigPreset enum**: All available preset identifiers
+2. **PRESET_INFO dict**: Human-readable names and descriptions
+3. **MODEL_PRESETS dict**: Available presets per device model
+
+### Micro-code Generation
+
+Each preset maps to `InputActionBuilder` methods that generate micro-code:
+
+- **build_simple_toggle()**: Single action (short press → toggle)
+- **build_dimmer_toggle_dim()**: Three actions (short press + alternating long presses)
+- **build_dimmer_up_down()**: Four actions (2 buttons × 2 actions each)
+- **build_cover_rocker()**: Four actions (pressed + released for each button)
+- **build_cover_toggle()**: Four alternating actions for cycle behavior
+
+### Decoupled Mode Implementation
+
+Decoupled presets return an empty action list (`[]`), meaning:
+- No InputActions micro-code is written to the device
+- Physical buttons don't control the output directly
+- Button press events are still detected by input monitoring
+- Device triggers fire to Home Assistant for automations
+
+**Important**: This is NOT the same as "smart bulb mode". The device still processes
+button presses locally and sends events - it doesn't require HA to be online.
+
+### Options Flow Integration
+
+The flow sequence varies by device type:
+
+- **S1/S1-R**: configure → input_config
+- **D1/D1-R**: configure → d1_options → input_config
+- **J1/J1-R**: configure → j1_advanced → input_config
+
+This ensures device-specific settings (phase mode, ballast, tuning) are configured
+before input presets.
+
+### J1 Window Covering Presets
+
+J1 presets use WindowCovering cluster (0x0102) commands:
+
+- **CMD_UP_OPEN (0x00)**: Open/raise the covering
+- **CMD_DOWN_CLOSE (0x01)**: Close/lower the covering
+- **CMD_WC_STOP (0x02)**: Stop movement
+
+**Cover Rocker preset**: Uses pressed/released transitions for continuous movement:
+```
+Button 1 pressed → up_open
+Button 1 released → stop
+Button 2 pressed → down_close
+Button 2 released → stop
+```
+
+**Cover Toggle preset**: Uses alternating short presses for cycling:
+```
+Press 1 → up_open (alternating=True)
+Press 2 → stop (alternating=True)
+Press 3 → down_close (alternating=True)
+Press 4 → stop (alternating=False, ends cycle)
+```
+
+### D1 Dimmer Presets
+
+D1 presets use Level Control (0x0008) and On/Off (0x0006) clusters:
+
+**Toggle + Dim preset**:
+```
+Short press → toggle (On/Off cluster)
+Long press → move up (alternating=True)
+Long press → move down (ends cycle)
+```
+
+**Up/Down preset**:
+```
+Button 1 short → on
+Button 1 long → move up
+Button 2 short → off
+Button 2 long → move down
+```
+
+### S1 Dimmer Control Presets
+
+S1/S1-R devices can control remote dimmers via ZigBee group binding using
+these presets (reuses D1 builder functions for DRY principle):
+
+**Toggle + Dim preset** (single button, S1 or S1-R):
+```
+Short press → toggle (On/Off cluster)
+Long press → move up (alternating=True)
+Long press → move down (ends cycle)
+```
+
+**Up/Down preset** (dual button, S1-R only):
+```
+Button 1 short → on
+Button 1 long → move up
+Button 2 short → off
+Button 2 long → move down
+```
+
+Use case: Install S1-R near a doorway to control a D1 dimmer in another
+location. Local control works even if Home Assistant is offline.
+
+### Latching Switch Presets
+
+Latching switches (push-on/push-off switches that stay in position) require
+different control patterns since you can't "hold" them for continuous control.
+
+**D1_STEP preset** (step dimming):
+```
+Short press 1 → step up (LevelControl CMD_STEP, mode=0x00)
+Short press 2 → step down (LevelControl CMD_STEP, mode=0x01)
+(cycle repeats)
+```
+
+Each press adjusts brightness by ~12.5% (step_size=32 out of 254). This provides
+fine-grained control without needing to hold a button.
+
+**J1_ALTERNATING preset** (alternating up/down):
+```
+Short press 1 → up_open
+Short press 2 → down_close
+(cycle repeats)
+```
+
+Simpler than J1_TOGGLE (2 states vs 4 states). The covering stops at limits
+automatically. Press during movement to reverse direction.
+
+**Why these are better for latching switches:**
+- Only use SHORT_PRESS transitions (no hold detection needed)
+- Simple 2-state alternation is intuitive
+- Each press makes immediate progress
+- Works naturally with how latching switches function
+
+### Endpoint Constants
+
+Each device type has dedicated endpoint constants:
+
+```python
+# S1 endpoints
+S1_PRIMARY_ENDPOINT = 2
+S1R_SECONDARY_ENDPOINT = 3
+
+# D1 endpoints
+D1_PRIMARY_ENDPOINT = 2
+D1_SECONDARY_ENDPOINT = 3
+
+# J1 endpoints
+J1_PRIMARY_ENDPOINT = 2
+J1_SECONDARY_ENDPOINT = 3
+```
+
+These are used in `build_preset()` to generate correct source endpoints.
+
+## Dynamic UI Descriptions
+
+### Pattern Implementation
+
+Config flow steps can display dynamic, context-aware descriptions using `description_placeholders`.
+The pattern builds information at runtime and injects it into translation strings.
+
+**Input Configuration Step** (implemented):
+```python
+# Build preset info lines from available presets
+preset_info_lines = []
+for preset in available_presets:
+    name, description = InputConfigPresets.get_preset_info(preset)
+    preset_info_lines.append(f"• **{name}**: {description}")
+
+# Pass to form
+description_placeholders={
+    "device_name": device_name,
+    "preset_info": "\n".join(preset_info_lines),
+}
+```
+
+Translation string uses `{preset_info}` placeholder:
+```json
+"description": "Select behavior for {device_name}.\n\n**Available presets:**\n{preset_info}"
+```
+
+### Future Enhancement Opportunities
+
+**About/Device Status (High Value)**:
+- J1: Show TotalSteps, TotalSteps2, asymmetry %, last calibration date
+- All devices: Show current input preset, ZigBee signal strength
+- Would require reading device attributes asynchronously
+
+**J1 Advanced Tuning (Medium Value)**:
+- Show current device values alongside input fields
+- User sees what they're changing from/to
+- Example: "Current turnaround guard time: 10 (50ms units)"
+
+**D1 Options (Medium Value)**:
+- Show current phase mode and ballast levels
+- Explain what each phase mode does
+- Example: "Current: Automatic | Min: 10% | Max: 100%"
+
+**Implementation Considerations**:
+- Device reads add latency to config flow opening
+- May need async loading with spinners
+- Cache device values to avoid repeated reads
+- Consider "Refresh" button for re-reading device state
+
